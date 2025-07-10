@@ -4,12 +4,15 @@ import threading
 
 class CLOCK:
     
-    def __init__(self):
-        self.current_clock: int = 0     # Contador de clock
-        self.porta: int = 4000          # Porta de escuta/comunicação
-        self.dados = None               # Dado recebido através de algum processo 
-        self.running: bool = False      # Booleando para rodar o servidor
-        self.lock = threading.Lock()    # Para sincronização segura
+    def __init__(self, host: str, clock_port: int, emitter_port: int, scheduler_port: int):
+        self.host: str = host                       # Host local
+        self.clock_port: int = clock_port           # Porta de escuta/comunicação do clock
+        self.emitter_port: int = emitter_port       # Porta de escuta/comunicação do emissor
+        self.scheduler_port: int = scheduler_port   # Porta de escuta/comunicação do escalonador
+
+        self.dados = None                           # Dado recebido através de algum processo 
+        self.running: bool = False                  # Booleando para rodar o servidor
+        self.current_clock: int = 0                 # Contador de clock
 
 
     def start_server(self):
@@ -20,7 +23,7 @@ class CLOCK:
         # Criar socket
         servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-        servidor.bind(("localhost", self.porta))
+        servidor.bind((self.host, self.clock_port))
         servidor.listen(3)
         self.running = True
 
@@ -55,22 +58,17 @@ class CLOCK:
         try:
             # Cliente do servidor do EMISSOR DE TAREFAS
             cliente_emissor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            cliente_emissor.connect(('localhost', 4001))  
+            cliente_emissor.connect((self.host, self.emitter_port))  
 
             # Cliente do servidor do ESCALONADOR
             cliente_escalonador = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            cliente_escalonador.connect(('localhost', 4002))  
+            cliente_escalonador.connect((self.host, self.scheduler_port))  
 
             while True:
-                # Incrementa o clock 
-                self.current_clock += 1
-
-                # Tempo de delay para o avanço da linha do tempo
-                time.sleep(0.1)
-
+ 
                 # Mensagem Enviada ao EMISSOR DE TAREFAS
-                mensagem_emissor = ...
-                cliente_emissor.send()
+                mensagem_emissor = str(self.current_clock)
+                cliente_emissor.send(mensagem_emissor.encode())
 
                 # Tempo para o EMISSOR DE TAREFAS inserir as tarefas antes do 
                 # ESCALONADOR tentar escalona-lás
@@ -79,6 +77,14 @@ class CLOCK:
                 # Mensagem Enviada ao ESCALONADOR
                 mensagem_escalonador = ...
                 cliente_escalonador.send()
+
+                # Incrementa o clock 
+                self.current_clock += 1
+
+                # Tempo de delay para o avanço da linha do tempo
+                time.sleep(0.1)
+
+
                 # Verifica se deve parar
                 if self.dados == "FIM":
                     break
