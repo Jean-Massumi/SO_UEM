@@ -1,7 +1,7 @@
 import socket
 from collections import deque
 from dataclasses import dataclass
-from main import ready_threads
+from trabalho_escalonamento_v2.main import ready_threads
 from time import sleep
 
 
