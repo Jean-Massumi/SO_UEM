@@ -10,7 +10,6 @@ class CLOCK:
         self.emitter_port: int = emitter_port       # Porta de escuta/comunicação do emissor
         self.scheduler_port: int = scheduler_port   # Porta de escuta/comunicação do escalonador
 
-        self.dados = None                           # Dado recebido através de algum processo 
         self.running: bool = False                  # Booleando para rodar o servidor
         self.current_clock: int = 0                 # Contador de clock
 
@@ -34,12 +33,12 @@ class CLOCK:
                 print(f"Conexão de {endereco}")
                 
                 # Receber dados
-                self.dados = cliente.recv(1024).decode('utf-8')
+                message = cliente.recv(1024).decode('utf-8')
                                 
                 # Fechar conexão
                 cliente.close()
 
-                if self.dados == "FIM":
+                if message == "ESCALONADOR: ENCERRADO!":
                     self.running = False
                     print("Servidor do Clock encerrado")
                     
@@ -64,7 +63,7 @@ class CLOCK:
             cliente_escalonador = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             cliente_escalonador.connect((self.host, self.scheduler_port))  
 
-            while True:
+            while self.running:
  
                 # Mensagem Enviada ao EMISSOR DE TAREFAS
                 mensagem_emissor = str(self.current_clock)
@@ -84,10 +83,6 @@ class CLOCK:
                 # Tempo de delay para o avanço da linha do tempo
                 time.sleep(0.1)
 
-
-                # Verifica se deve parar
-                if self.dados == "FIM":
-                    break
 
             cliente_emissor.close()
             cliente_escalonador.close()

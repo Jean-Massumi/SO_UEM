@@ -143,7 +143,7 @@ class CLOCK:
                     time.sleep(0.005)
 
                     # Comunicação com o Escalonador
-                    #self.communication_scheduler()
+                    self.communication_scheduler()
 
                     # Incrementa o clock 
                     self.current_clock += 1

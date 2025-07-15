@@ -1,7 +1,7 @@
 import socket
-from collections import deque
 from dataclasses import dataclass
 import sys
+import json
 
 @dataclass
 class Thread:
@@ -10,8 +10,13 @@ class Thread:
     duracao_prevista: int
     prioridade: int
 
-
-ready_threads: deque[Thread] = deque()         # Fila dupla para referenciar as filas de tarefas prontas
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'tempo_ingresso': self.tempo_ingresso,
+            'duracao_prevista': self.duracao_prevista,
+            'prioridade': self.prioridade
+        }
 
 
 class EMISSOR:
@@ -26,6 +31,7 @@ class EMISSOR:
         self.task_file = arquivo                        # Arquivo que contém as Threads
         self.current_clock = None                       # Contador de clock
         self.running = True                             # Flag para iniciar a fila de threads
+
 
 
     def create_server(self):
@@ -44,6 +50,7 @@ class EMISSOR:
         self.servidor.settimeout(0.1)  # Timeout CURTO para não bloquear muito
 
         print("Servidor do emissor criado com sucesso! \n")
+
 
 
     def check_messages(self):
@@ -78,6 +85,7 @@ class EMISSOR:
             print(f"Erro no servidor: {e}")
 
 
+
     def close_server(self):
         '''
             Fecha o servidor do emissor
@@ -87,7 +95,33 @@ class EMISSOR:
         if self.servidor:
             self.servidor.close()
 
-        print("Servidor do emissor encerrado com sucesso!")
+        print("Servidor do emissor encerrado com sucesso! \n")
+
+
+
+    def send_thread_to_scheduler(self, thread: Thread):
+        '''
+            Envia uma thread para o escalonador via socket
+        '''
+
+        try:
+            cliente_escalonador = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            cliente_escalonador.settimeout(1.0)
+            cliente_escalonador.connect((self.host, self.scheduler_port))
+            
+            # Enviar thread como JSON
+            thread_data = {
+                'type': 'NEW_THREAD',
+                'thread': thread.to_dict()
+            }
+
+            mensagem = json.dumps(thread_data)
+            cliente_escalonador.send(mensagem.encode())
+            cliente_escalonador.close()
+            
+        except Exception as e:
+            print(f"Erro ao enviar thread para escalonador: {e}")
+
 
 
     def communication_scheduler(self):
@@ -102,13 +136,14 @@ class EMISSOR:
             cliente_escalonador.connect((self.host, self.scheduler_port))   
 
             # Mensagem Enviada ao ESCALONADOR
-            mensagem_escalonador = "EMISSOR: TAREFAS FINALIZADAS"
+            mensagem_escalonador = json.dumps({'type': 'TAREFAS_FINALIZADAS'})              
             cliente_escalonador.send(mensagem_escalonador.encode())
 
             cliente_escalonador.close()
             
         except Exception as e:
             print(f"Erro ao comunicar com escalonador: {e}")
+
 
 
     def communication_clock(self):
@@ -172,11 +207,11 @@ class EMISSOR:
                                     duracao_prevista = int(linha_atual[2]),
                                     prioridade = int(linha_atual[3])
                                 )
-                            print(f"Thread com tempo: {linha_atual[1]} entrando no tempo de clock {self.current_clock} \n")
+                            print(f"Thread {thread.id} com tempo: {thread.tempo_ingresso} \
+                                  entrando no tempo de clock {self.current_clock} \n")
                             
-                            # Insere a(s) Thread(s) que estão pronta na lista
-                            # de tarefas prontas.
-                            ready_threads.appendleft(thread)
+                            # Enviar thread para o escalonador
+                            self.send_thread_to_scheduler(thread)
 
                             if i + 1 < len(linhas):
                                 proxima_linha = linhas[i + 1].strip().split(';')
@@ -187,23 +222,26 @@ class EMISSOR:
                             
                         else:                    
                             old_clock = self.current_clock
-
                             continue
 
                     old_clock = self.current_clock
                     i += 1
 
-                if i > len(linhas) - 1:
-                    print(f"Sequencia de tarefas prontas {ready_threads}")
-                    cliente_clock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    cliente_clock.settimeout(1.0)  # Timeout para conexão
-                    cliente_clock.connect((self.host, 4000))
+                # if i > len(linhas) - 1:
+                #     print(f"Sequencia de tarefas prontas {ready_threads}")
+                #     cliente_clock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                #     cliente_clock.settimeout(1.0)  # Timeout para conexão
+                #     cliente_clock.connect((self.host, 4000))
 
-                    mensagem_clock = "ESCALONADOR: ENCERRADO"
-                    cliente_clock.send(mensagem_clock.encode())
+                #     mensagem_clock = "ESCALONADOR: ENCERRADO"
+                #     cliente_clock.send(mensagem_clock.encode())
 
-                    cliente_clock.close()
-                    break
+                #     cliente_clock.close()
+                #     break
+
+                    if i == len(linhas):
+                        self.communication_scheduler()
+
 
             self.close_server()
             print("EMISSOR ENCERRADO POR COMPLETO!")

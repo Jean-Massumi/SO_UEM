@@ -1,15 +1,28 @@
 import socket
 from dataclasses import dataclass
-from emissor_de_tarefas import ready_threads, Thread
+from collections import deque
+import json
 import sys
+import math
 
-# @dataclass
-# class Tarefa:
-#     ID: str
-#     clock_de_ingresso: int
-#     duracao_prevista: int
-#     prioridade: int
+
+@dataclass
+class Thread:
+    id: str
+    tempo_ingresso: int
+    duracao_prevista: int
+    prioridade: int
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            id=data['id'],
+            tempo_ingresso=data['tempo_ingresso'],
+            duracao_prevista=data['duracao_prevista'],
+            prioridade=data['prioridade']
+        )
     
+
 @dataclass
 class Tarefa_Finalizada:
     ID: str
@@ -17,6 +30,7 @@ class Tarefa_Finalizada:
     clock_de_finalizacao: int
     turn_around_time: int
     waiting_time: int
+
 
 class ESCALONADOR:
     
@@ -32,9 +46,15 @@ class ESCALONADOR:
 
         self.algoritmo = algoritmo
 
+        # Fila de threads prontas local ao escalonador
+        self.ready_threads: deque[Thread] = deque()
+
         # self.tarefas_finalizadas :list[Tarefa] = [] #Tarefas Finalizadas
         # self.tarefa_em_execução: Tarefa = None #Tarefa em Execução
         # self.porta :int = 4002 # Porta estrutura/comunicação
+
+        # Nome do arquivo de saída
+        self.output_file = f"algoritmo_{algoritmo}.txt"
         
 
     def create_server(self):
@@ -48,11 +68,11 @@ class ESCALONADOR:
         # Criar socket
         self.servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-        self.servidor.bind((self.host, self.emitter_port))
+        self.servidor.bind((self.host, self.scheduler_port))
         self.servidor.listen(3)
         self.servidor.settimeout(0.1)  # Timeout CURTO para não bloquear muito
 
-        print("Servidor do escalonador criado com sucesso!")
+        print("Servidor do escalonador criado com sucesso! \n")
 
 
     def check_messages(self):
@@ -66,18 +86,32 @@ class ESCALONADOR:
             
             # Receber dados
             message = cliente.recv(1024).decode('utf-8')
-            print(f"Mensagem recebida: {message}")    
+            #print(f"Mensagem recebida: {message}")    
             
             # Fechar conexão
             cliente.close()
 
             # Processar mensagem
-            if message == "EMISSOR: TAREFAS FINALIZADAS":
-                self.emitter_completed = True
-                print("Comando TAREFAS FINALIZADAS PELO EMISSOR recebido!")
+            try:
+                # Tentar parsear como JSON
+                data = json.loads(message)
+                
+                if data.get('type') == 'NEW_THREAD':
+                    # Receber nova thread do emissor
+                    thread = Thread.from_dict(data['thread'])
+                    self.ready_threads.appendleft(thread)
 
-            elif message.startswith("CLOCK: "):
-                self.current_clock = message[7:]
+                    print(f"Nova thread recebida: {thread.id} \n")
+                    
+                elif data.get('type') == 'TAREFAS_FINALIZADAS':
+                    self.emitter_completed = True
+
+                    print("Comando TAREFAS FINALIZADAS PELO EMISSOR recebido! \n ")
+                    
+            except json.JSONDecodeError:
+                # Mensagem não é JSON, processar como string
+                if message.startswith("CLOCK: "):
+                    self.current_clock = message[7:]
 
         except socket.timeout:
             # Normal - não havia mensagem
@@ -96,7 +130,7 @@ class ESCALONADOR:
         if self.servidor:
             self.servidor.close()
 
-        print("Servidor do escalonador encerrado com sucesso!")
+        print("Servidor do escalonador encerrado com sucesso! \n")
 
 
     def communication_clock(self):
@@ -142,6 +176,50 @@ class ESCALONADOR:
             print(f"Erro ao comunicar com emissor: {e}")
 
 
+    def write_to_output_file(self, thread_id: str):
+        '''
+            Escreve o ID da thread em execução no arquivo de saída
+        '''
+
+        try:
+            with open(self.output_file, "a") as f:
+                f.write(f"{thread_id};")
+
+        except Exception as e:
+            print(f"Erro ao escrever no arquivo: {e}")
+
+
+
+    def write_final_statistics(self, tarefas_concluidas: list[Tarefa_Finalizada]):
+        '''
+            Escreve as estatísticas finais no arquivo de saída
+        '''
+
+        try:
+            with open(self.output_file, "a") as f:
+                f.write("\n")  # Nova linha após a sequência de execução
+                
+                # Escrever informações de cada tarefa
+                for tarefa in tarefas_concluidas:
+                    f.write(f"{tarefa.ID};{tarefa.clock_de_ingresso};{tarefa.clock_de_finalizacao};{tarefa.turn_around_time};{tarefa.waiting_time}\n")
+                
+                # Calcular médias
+                if tarefas_concluidas:
+                    media_turnaround = sum(t.turn_around_time for t in tarefas_concluidas) / len(tarefas_concluidas)
+                    media_waiting = sum(t.waiting_time for t in tarefas_concluidas) / len(tarefas_concluidas)
+                    
+                    # Arredondar para cima com 1 casa decimal
+                    media_turnaround_rounded = math.ceil(media_turnaround * 10) / 10
+                    media_waiting_rounded = math.ceil(media_waiting * 10) / 10
+                    
+                    f.write(f"{media_turnaround_rounded:.1f};{media_waiting_rounded:.1f}\n")
+                else:
+                    f.write("0.0;0.0\n")
+                    
+        except Exception as e:
+            print(f"Erro ao escrever estatísticas finais: {e}")
+
+
 
     def fcfs(self):
         tarefa_em_execucao = False
@@ -149,54 +227,72 @@ class ESCALONADOR:
         tarefa_no_momento: Thread
         tarefas_concluidas: list[Tarefa_Finalizada] = []
 
-        # with open("algoritmo_fcfs.txt", "a") as f:
-        #     f.write("")
+        # Lista para armazenar o log de execução
+        execution_log = []
 
-
-        while not (self.emitter_completed and len(ready_threads) == 0 and not tarefa_em_execucao):
+        while not (self.emitter_completed and len(self.ready_threads) == 0 and not tarefa_em_execucao):
             
+            # Verificar mensagens (incluindo novas threads)
+            self.check_messages()
+            
+            if old_clock != self.current_clock and self.current_clock is not None:
+                print(f"Clock: {self.current_clock}, Threads prontas: {len(self.ready_threads)}")
 
-            # Verificar o self.clock
-            if old_clock != self.current_clock:
+                # Verificar se há threads prontas para executar
+                if not tarefa_em_execucao and len(self.ready_threads) > 0:
+                    tarefa_no_momento = self.ready_threads.pop()    
+                    inicio_da_execucao = int(self.current_clock)
 
-                if len(ready_threads) > 0 or tarefa_em_execucao:
+                    print(f"Thread: {tarefa_no_momento.id} iniciada no tempo de ingresso {tarefa_no_momento.tempo_ingresso} no clock {self.current_clock}")
 
-                    if not tarefa_em_execucao:
-                        tarefa_no_momento = ready_threads.pop()    
-                        inicio_da_execucao = self.current_clock  
+                    tarefa_em_execucao = True
 
-                        print(f"Thread: {tarefa_no_momento.id} iniciada no tempo de ingresso {tarefa_no_momento.tempo_ingresso} \
-                              no clock {self.current_clock}")      
-
-                        tarefa_em_execucao = True
-
-
-                    tarefa_no_momento.duracao_prevista -= 1
-
+                # Se há uma tarefa em execução, registrar no log e processar
+                if tarefa_em_execucao:     
+                    
+                    # Verificar se a tarefa foi concluída
                     if tarefa_no_momento.duracao_prevista == 0:
-                        id = tarefa_no_momento.id
+                        id_tarefa = tarefa_no_momento.id
                         tempo_ingresso = tarefa_no_momento.tempo_ingresso
-                        tempo_finalizacao = self.current_clock
+                        tempo_finalizacao = int(self.current_clock)
                         turnaround_time = tempo_finalizacao - tempo_ingresso
                         waiting_time = inicio_da_execucao - tempo_ingresso
 
-                        tarefas_concluidas.append(Tarefa_Finalizada(id, 
-                                                                    tempo_finalizacao,
-                                                                    tempo_finalizacao, 
-                                                                    turnaround_time,
-                                                                    waiting_time))
+                        tarefas_concluidas.append(Tarefa_Finalizada(
+                            id_tarefa,
+                            tempo_ingresso,
+                            tempo_finalizacao, 
+                            turnaround_time,
+                            waiting_time
+                        ))
                         
-                        print(f"Thread: {id} finalizada no clock {tempo_finalizacao} com duração prevista {tarefa_no_momento.duracao_prevista}")
-
+                        print(f"Thread: {id_tarefa} finalizada no clock {tempo_finalizacao}")
                         tarefa_em_execucao = False
+                        continue
 
+                    # Registrar a execução da tarefa neste clock
+                    execution_log.append(tarefa_no_momento.id)
+                    
+                    # Escrever no arquivo de saída imediatamente
+                    self.write_to_output_file(tarefa_no_momento.id)
 
-            self.check_messages()
+                    # Decrementar a duração da tarefa
+                    tarefa_no_momento.duracao_prevista -= 1
+                    
+                old_clock = self.current_clock
 
+        print("Tarefas concluídas:")
+        for tarefa in tarefas_concluidas:
+            print(f"ID: {tarefa.ID}, Ingresso: {tarefa.clock_de_ingresso}, Finalização: {tarefa.clock_de_finalizacao}, Turnaround: {tarefa.turn_around_time}, Waiting: {tarefa.waiting_time}")
+
+        # Escrever estatísticas finais no arquivo
+        self.write_final_statistics(tarefas_concluidas)
+        
         self.communication_clock()
         self.communication_emitter()
-
         self.close_server()
+
+        
 
 
     # def fcfs(self, fila_de_tarefas: list[Tarefa]):

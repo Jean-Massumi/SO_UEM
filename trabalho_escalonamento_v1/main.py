@@ -11,12 +11,8 @@ clock_port = 4000           # Porta de escuta do clock
 emitter_port = 4001         # Porta de escuta do emissor
 scheduler_port = 4002       # Porta de escuta do escalonador
 
+# Fila de tarefas prontas
 ready_task = deque()
-
-
-
-
-
 
 if __name__  == "__main__":
 
@@ -54,9 +50,8 @@ if __name__  == "__main__":
     # Instância de cada estrutura dos arquivos (clock.py, emissor_de_tarefas.py
     # e escalonador_de_tarefas.py)
     clock = CLOCK(host, clock_port, emitter_port, scheduler_port)
-    sender = EMISSOR(host, emitter_port, scheduler_port, threads_list)
-    scheduler = ESCALONADOR(host, scheduler_port, clock_port, emitter_port)
-
+    sender = EMISSOR(host, emitter_port, scheduler_port, ready_task)
+    scheduler = ESCALONADOR(host, scheduler_port, clock_port, emitter_port, ready_task)
 
     # Criar Processos
     processo_emissor = Process(target=...)
