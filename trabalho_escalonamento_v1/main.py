@@ -1,6 +1,5 @@
 import sys
 from multiprocessing import Process
-from dataclasses import dataclass
 from collections import deque
 
 from clock import CLOCK

@@ -1,31 +1,31 @@
 import socket
 from collections import deque
 from dataclasses import dataclass
-from trabalho_escalonamento_v2.main import ready_threads
-from time import sleep
-
+import sys
 
 @dataclass
 class Thread:
     id: str
-    tempo: int
-    duracao: int
+    tempo_ingresso: int
+    duracao_prevista: int
     prioridade: int
 
+
+ready_threads: deque[Thread] = deque()         # Fila dupla para referenciar as filas de tarefas prontas
 
 
 class EMISSOR:
 
-    def __init__(self, host: str, emitter_port: int, scheduler_port: int, arquivo):
+    def __init__(self, host: str, clock_port: int, emitter_port: int, scheduler_port: int, arquivo):
         self.host: str = host                           # Host do computador
+        self.clock_port: int = clock_port               # Porta de escuta/comunicação do clock
         self.emitter_port: int = emitter_port           # Porta de escuta/comunicação do emissor
         self.scheduler_port: int = scheduler_port       # Porta de escuta/comunicação do escalonador
         self.servidor = None
 
-        self.running: bool = False                      # Booleando para rodar o servidor
-        self.message = -2                               # Mensagem recebida através de algum processo 
         self.task_file = arquivo                        # Arquivo que contém as Threads
-        self.current_clock = 0
+        self.current_clock = None                       # Contador de clock
+        self.running = True                             # Flag para iniciar a fila de threads
 
 
     def create_server(self):
@@ -43,7 +43,7 @@ class EMISSOR:
         self.servidor.listen(3)
         self.servidor.settimeout(0.1)  # Timeout CURTO para não bloquear muito
 
-        print("Servidor do emissor criado com sucesso!")
+        print("Servidor do emissor criado com sucesso! \n")
 
 
     def check_messages(self):
@@ -56,23 +56,19 @@ class EMISSOR:
             cliente, endereco = self.servidor.accept()
             
             # Receber dados
-            self.message = cliente.recv(1024).decode('utf-8')
-            print(f"📨 Mensagem recebida: {self.message}")    
+            message = cliente.recv(1024).decode('utf-8')
+            print(f"Mensagem recebida: {message}")    
             
             # Fechar conexão
-            cliente.close()
+            cliente.close() 
 
             # Processar mensagem
-            if self.message == "FIM":
-                print("🛑 Comando FIM recebido!")
+            if message == "ESCALONADOR: ENCERRADO":
                 self.running = False
+                print("Comando FIM recebido! \n")
 
-            else:
-                try:
-                    self.current_clock = int(self.message)
-
-                except ValueError:
-                    print(f"⚠️ Mensagem inválida recebida: {self.message}")
+            elif message.startswith("CLOCK: "):
+                self.current_clock = message[7:]
 
         except socket.timeout:
             # Normal - não havia mensagem
@@ -106,13 +102,13 @@ class EMISSOR:
             cliente_escalonador.connect((self.host, self.scheduler_port))   
 
             # Mensagem Enviada ao ESCALONADOR
-            mensagem_escalonador = "TAREAFAS FINALIZADAS"
+            mensagem_escalonador = "EMISSOR: TAREFAS FINALIZADAS"
             cliente_escalonador.send(mensagem_escalonador.encode())
 
             cliente_escalonador.close()
             
         except Exception as e:
-            print(f"❌ Erro ao comunicar com escalonador: {e}")
+            print(f"Erro ao comunicar com escalonador: {e}")
 
 
     def communication_clock(self):
@@ -122,16 +118,15 @@ class EMISSOR:
         try:
             cliente_clock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             cliente_clock.settimeout(1.0)  # Timeout para conexão
-            cliente_clock.connect((self.host, 4000))
+            cliente_clock.connect((self.host, self.clock_port))
 
-            mensagem_clock = "INICIAR CLOCK"
+            mensagem_clock = "EMISSOR: INICIAR CLOCK"
             cliente_clock.send(mensagem_clock.encode())
 
             cliente_clock.close()
             
         except Exception as e:
-            print(f"❌ Erro ao comunicar com clock: {e}")
-
+            print(f"Erro ao comunicar com clock: {e}")
 
 
 
@@ -145,8 +140,8 @@ class EMISSOR:
 
         print("Clock Inicializado")
 
-        # Variavel para saber quando uma nova mensagem é recebida!
-        old_clock = -1
+        # Variavel para diferenciar, quando o clock avança ou não.
+        old_clock = None
 
         try:
 
@@ -155,33 +150,29 @@ class EMISSOR:
 
             # Contador de linha
             i = 0
-            while True:
+            while self.running:
 
                 # Verifica se o servidor do emissor recebeu alguma mensagem
                 self.check_messages()
 
-                if old_clock != self.message and i < len(linhas):
+                if old_clock != self.current_clock and i < len(linhas):
                     # Remove os espaços em branco do inicio e fim da linha
                     linha = linhas[i].strip()
+
 
                     if linha:
                         # Armazena os dados da linha em um lista .
                         linha_atual = linha.split(';')
 
-                        # Verifica se a Thread pode ser mandado naquele tempo de clock
-                        # para a lista de tarefas prontas
-                        # print(f"tempo {linha_atual[1]}") remover depois
 
-                        # print(f"message {self.message}") remover depois
-
-                        if linha_atual[1] == self.message:
+                        if linha_atual[1] == self.current_clock:
                             thread = Thread(
                                     id = linha_atual[0],
-                                    tempo = int(linha_atual[1]),
-                                    duracao = int(linha_atual[2]),
+                                    tempo_ingresso = int(linha_atual[1]),
+                                    duracao_prevista = int(linha_atual[2]),
                                     prioridade = int(linha_atual[3])
                                 )
-                            print(f"Thread com tempo: {linha_atual[1]} entrando no tempo de clock {self.message}")
+                            print(f"Thread com tempo: {linha_atual[1]} entrando no tempo de clock {self.current_clock} \n")
                             
                             # Insere a(s) Thread(s) que estão pronta na lista
                             # de tarefas prontas.
@@ -190,37 +181,40 @@ class EMISSOR:
                             if i + 1 < len(linhas):
                                 proxima_linha = linhas[i + 1].strip().split(';')
                                 
-                                if proxima_linha[1] == self.message:
+                                if proxima_linha[1] == self.current_clock:
                                     i += 1  # Incrementar i antes de continuar
                                     continue
-                        else:
+                            
+                        else:                    
+                            old_clock = self.current_clock
+
                             continue
 
-                    old_clock = self.message
+                    old_clock = self.current_clock
                     i += 1
 
-                if i >= len(linhas):
+                if i > len(linhas) - 1:
                     print(f"Sequencia de tarefas prontas {ready_threads}")
                     cliente_clock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     cliente_clock.settimeout(1.0)  # Timeout para conexão
                     cliente_clock.connect((self.host, 4000))
 
-                    mensagem_clock = "FIM"
+                    mensagem_clock = "ESCALONADOR: ENCERRADO"
                     cliente_clock.send(mensagem_clock.encode())
 
                     cliente_clock.close()
                     break
 
-                if self.message == "FIM":
-                    self.close_server()
-                    break
+            self.close_server()
+            print("EMISSOR ENCERRADO POR COMPLETO!")
+
                         
         
         except FileNotFoundError:
-            print(f"❌ Arquivo não encontrado: {self.task_file}")
+            print(f"Arquivo não encontrado: {self.task_file}")
 
         except Exception as e:
-            print(f"❌ Erro ao processar tarefas: {e}")
+            print(f"Erro ao processar tarefas: {e}")
 
 
     def start(self):
@@ -235,16 +229,29 @@ class EMISSOR:
             self.task_checker()
             
         except KeyboardInterrupt:
-            print("\n🛑 Interrompido pelo usuário")
-            self.running = False
+            print("Interrompido pelo usuário")
             self.close_server()
+
         except Exception as e:
-            print(f"❌ Erro geral: {e}")
+            print(f"Erro geral: {e}")
             self.close_server()
             
 
 
-emissor = EMISSOR("localhost", 4001, 4002, "entrada00.txt")
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Erro: Você deve passar exatamente 2 argumentos!")
 
-emissor.start()
+    arq_tarefas = sys.argv[1]
 
+    # Portas de comunicação
+    clock_port = 4000
+    emitter_port = 4001
+    scheduler_port = 4002
+
+    # Host local
+    host = "localhost"
+
+    emissor = EMISSOR(host, clock_port, emitter_port, scheduler_port, arq_tarefas)
+
+    emissor.start()

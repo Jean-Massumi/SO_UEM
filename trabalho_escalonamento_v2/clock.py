@@ -12,8 +12,8 @@ class CLOCK:
         self.servidor = None
 
         self.current_clock: int = 0                 # Contador de clock
-        self.clock_started = False
-        self.running = True 
+        self.clock_started = False                  # Flag para iniciar o clock
+        self.running = True                         # Flag para iniciar os ticks do clock
 
 
     def create_server(self):
@@ -31,7 +31,7 @@ class CLOCK:
         self.servidor.listen(3)
         self.servidor.settimeout(0.1)  # Timeout CURTO para não bloquear muito
 
-        print("Servidor do clock criado com sucesso!")
+        print("Servidor do clock criado com sucesso! \n")
 
 
     def check_messages(self):
@@ -51,13 +51,13 @@ class CLOCK:
             cliente.close()
 
             # Processar mensagem
-            if message == "INICIAR CLOCK":
+            if message == "EMISSOR: INICIAR CLOCK":
                 self.clock_started = True
-                print("Clock iniciado!")
+                print("Clock iniciado! \n")
 
-            elif message == "FIM":
+            elif message == "ESCALONADOR: ENCERRADO":
                 self.running = False
-                print("Comando FIM recebido!")
+                print("Comando FIM recebido! \n")
                             
         except socket.timeout:
             # Timeout é normal, não é erro
@@ -76,7 +76,7 @@ class CLOCK:
         if self.servidor:
             self.servidor.close()
 
-        print("Servidor do clock encerrado com sucesso!")
+        print("Servidor do clock encerrado com sucesso! \n")
 
 
     def communication_emitter(self):
@@ -90,15 +90,15 @@ class CLOCK:
             cliente_emissor.connect((self.host, self.emitter_port))  
 
             # Mensagem Enviada ao EMISSOR DE TAREFAS
-            mensagem_emissor = str(self.current_clock)
+            mensagem_emissor = "CLOCK: " + str(self.current_clock)
             cliente_emissor.send(mensagem_emissor.encode())
 
             cliente_emissor.close()
             
         except ConnectionRefusedError:
-            print(f"❌ Emissor não está rodando na porta {self.emitter_port}")
+            print(f"Emissor não está rodando na porta {self.emitter_port}")
         except Exception as e:
-            print(f"❌ Erro ao comunicar com emissor: {e}")
+            print(f"Erro ao comunicar com emissor: {e}")
 
 
     def communication_scheduler(self):
@@ -112,7 +112,7 @@ class CLOCK:
             cliente_escalonador.connect((self.host, self.scheduler_port))   
 
             # Mensagem Enviada ao ESCALONADOR
-            mensagem_escalonador = str(self.current_clock)
+            mensagem_escalonador = "CLOCK: " +str(self.current_clock)
             cliente_escalonador.send(mensagem_escalonador.encode())
 
             cliente_escalonador.close()
@@ -143,7 +143,7 @@ class CLOCK:
                     time.sleep(0.005)
 
                     # Comunicação com o Escalonador
-                    # self.communication_scheduler()
+                    #self.communication_scheduler()
 
                     # Incrementa o clock 
                     self.current_clock += 1
@@ -154,11 +154,12 @@ class CLOCK:
                 else:
                     # Evita uso excessivo de CPU
                     time.sleep(0.01)
+                    
                 # Verifica mensagens RAPIDAMENTE
                 self.check_messages()
 
             self.close_server()
-            print("CLOCK FINALIZADO POR COMPLETO!")
+            print("CLOCK ENCERRADO POR COMPLETO!")
 
         except Exception as e:
             print(f"Erro no clock_tick: {e}")
@@ -177,7 +178,7 @@ class CLOCK:
             self.clock_tick()
             
         except KeyboardInterrupt:
-            print("\n🛑 Interrompido pelo usuário")
+            print("Interrompido pelo usuário")
             self.running = False
             self.close_server()
 
@@ -186,6 +187,17 @@ class CLOCK:
             self.close_server()
 
 
-clock = CLOCK("localhost", 4000, 4001, 4002)
-clock.start()
+
+if __name__ == "__main__":
+
+    # Portas de comunicação
+    clock_port = 4000
+    emitter_port = 4001
+    scheduler_port = 4002
+
+    # Host local
+    host = "localhost"
+
+    clock = CLOCK(host, clock_port, emitter_port, scheduler_port)
+    clock.start()
 
