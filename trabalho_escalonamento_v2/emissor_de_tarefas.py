@@ -5,12 +5,20 @@ import json
 
 @dataclass
 class Thread:
+    '''
+        Representa uma thread/tarefa no sistema de escalonamento.
+    '''
+
     id: str
     tempo_ingresso: int
     duracao_prevista: int
     prioridade: int
 
     def to_dict(self):
+        '''
+            Converte a thread para formato dicionário.
+        '''
+
         return {
             'id': self.id,
             'tempo_ingresso': self.tempo_ingresso,
@@ -20,24 +28,33 @@ class Thread:
 
 
 class EMISSOR:
+    '''
+        Responsável pela emissão de tarefas
+    
+        O emissor lê tarefas de um arquivo e as envia para o escalonador
+        no momento apropriado, baseado no clock.
+    '''
 
     def __init__(self, host: str, clock_port: int, emitter_port: int, scheduler_port: int, arquivo):
-        self.host: str = host                           # Host do computador
-        self.clock_port: int = clock_port               # Porta de escuta/comunicação do clock
-        self.emitter_port: int = emitter_port           # Porta de escuta/comunicação do emissor
-        self.scheduler_port: int = scheduler_port       # Porta de escuta/comunicação do escalonador
-        self.servidor = None
 
-        self.task_file = arquivo                        # Arquivo que contém as Threads
-        self.current_clock = None                       # Contador de clock
-        self.running = True                             # Flag para iniciar a fila de threads
+        self.host: str = host                           # Endereço IP do servidor
+        self.emitter_port: int = emitter_port           # Porta do servidor do EMISSOR
+        self.clock_port: int = clock_port               # Porta de destino do CLOCK
+        self.scheduler_port: int = scheduler_port       # Porta de destino do ESCALONADOR
+        self.servidor = None                            # Socket Servidor 
+
+        self.task_file = arquivo                        # Arquivo fonte das tarefas
+        self.current_clock = None                       # Valor atual do clock recebido
+        self.running = True                             # Flag de controle: sistema rodando/parado
 
 
 
     def create_server(self):
         '''
-            Cria e configura o servidor TCP do emissor para receber conexões
-            de outros processos (clock e escalonador) na porta especificada
+            Cria e configura o servidor do emissor.
+            
+            Estabelece um socket servidor que escuta na porta especificada,
+            aguardando pulsos do clock e comandos do escalonador.
         '''
         
         print("Criando o servidor do emissor!")
@@ -55,7 +72,11 @@ class EMISSOR:
 
     def check_messages(self):
         '''
-            Verifica se há mensagens recebidas (não bloqueia)
+            Escuta e processa mensagens recebidas.
+            
+            Aceita conexões não-bloqueantes e processa os seguintes tipos:
+            - "CLOCK: {valor}": Atualiza o clock atual do sistema
+            - "ESCALONADOR: ENCERRADO": Para o sistema (running = False)        
         '''
        
         try:
@@ -65,17 +86,16 @@ class EMISSOR:
             # Receber dados
             message = cliente.recv(1024).decode('utf-8')
             print(f"Mensagem recebida: {message}")    
-            
-            # Fechar conexão
-            cliente.close() 
 
             # Processar mensagem
             if message == "ESCALONADOR: ENCERRADO":
                 self.running = False
-                print("Comando FIM recebido! \n")
 
             elif message.startswith("CLOCK: "):
                 self.current_clock = message[7:]
+            
+            # Fechar conexão
+            cliente.close() 
 
         except socket.timeout:
             # Normal - não havia mensagem
@@ -88,20 +108,27 @@ class EMISSOR:
 
     def close_server(self):
         '''
-            Fecha o servidor do emissor
+            Encerra o servidor do emissor de forma segura.
+            
+            Fecha o socket servidor, liberando recursos e a porta utilizada.
+            Chamado automaticamente ao finalizar o sistema.        
         '''
-        print("Encerrando o servidor do emissor!")
+
+        print("\nEncerrando o servidor do emissor!")
 
         if self.servidor:
             self.servidor.close()
 
-        print("Servidor do emissor encerrado com sucesso! \n")
+        print("Servidor do emissor encerrado com sucesso!\n")
 
 
 
     def send_thread_to_scheduler(self, thread: Thread):
         '''
-            Envia uma thread para o escalonador via socket
+            Envia uma thread para o escalonador via socket.
+            
+            Serializa a thread em formato JSON e a envia para o escalonador
+            com tipo 'NEW_THREAD' para identificação do protocolo.    
         '''
 
         try:
@@ -126,7 +153,10 @@ class EMISSOR:
 
     def communication_scheduler(self):
         '''
-            Comunica com o escalonador
+            Notifica o escalonador sobre finalização de tarefas.
+            
+            Envia mensagem JSON do tipo 'TAREFAS_FINALIZADAS' para informar
+            que todas as tarefas foram emitidas e o sistema pode encerrar.
         '''
 
         try:
@@ -148,8 +178,12 @@ class EMISSOR:
 
     def communication_clock(self):
         '''
-            Comunica com o clock
+            Envia comando para iniciar o clock do sistema.
+            
+            Comunica ao clock que o emissor está pronto e o sistema
+            pode começar a gerar pulsos temporais.      
         '''
+        
         try:
             cliente_clock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             cliente_clock.settimeout(1.0)  # Timeout para conexão
@@ -167,15 +201,23 @@ class EMISSOR:
 
     def task_checker(self):
         '''
-            Informa ao escalonador, quais tarefas já estão prontas
+            Loop principal que processa e emite tarefas baseado no clock.
+            
+            Executa o seguinte algoritmo:
+            1. Inicializa o clock do sistema
+            2. Lê arquivo de tarefas linha por linha
+            3. Para cada pulso do clock, verifica se há tarefas a emitir
+            4. Envia tarefas prontas para o escalonador
+            5. Notifica finalização quando todas as tarefas foram emitidas
+            
+            Formato do arquivo de tarefas:
+            id;tempo_ingresso;duracao_prevista;prioridade        
         '''
 
         # Sinaliza a inicialização do clock
         self.communication_clock()
 
-        print("Clock Inicializado")
-
-        # Variavel para diferenciar, quando o clock avança ou não.
+        # Variável para detectar mudanças no clock
         old_clock = None
 
         try:
@@ -183,41 +225,41 @@ class EMISSOR:
             with open(self.task_file, 'r') as arq:
                 linhas = arq.readlines()
 
-            # Contador de linha
+            # Índice da linha atual sendo processada
             i = 0
             while self.running:
 
                 # Verifica se o servidor do emissor recebeu alguma mensagem
                 self.check_messages()
 
+                # Processa apenas qunado o clock avança
                 if old_clock != self.current_clock and i < len(linhas):
                     # Remove os espaços em branco do inicio e fim da linha
                     linha = linhas[i].strip()
-
 
                     if linha:
                         # Armazena os dados da linha em um lista .
                         linha_atual = linha.split(';')
 
-
+                        # Verifica se a tarefa deve ser emitida neste clock
                         if linha_atual[1] == self.current_clock:
                             thread = Thread(
-                                    id = linha_atual[0],
-                                    tempo_ingresso = int(linha_atual[1]),
-                                    duracao_prevista = int(linha_atual[2]),
-                                    prioridade = int(linha_atual[3])
+                                    linha_atual[0],         # ID
+                                    int(linha_atual[1]),    # Tempo de ingresso
+                                    int(linha_atual[2]),    # Duração prevista
+                                    int(linha_atual[3])     # Prioridade
                                 )
-                            print(f"Thread {thread.id} com tempo: {thread.tempo_ingresso} \
-                                  entrando no tempo de clock {self.current_clock} \n")
+                            print(f"Thread {thread.id} com tempo: {thread.tempo_ingresso} entrando no tempo de clock {self.current_clock} \n")
                             
                             # Enviar thread para o escalonador
                             self.send_thread_to_scheduler(thread)
 
+                            # Verifica se a próxima linha também deve ser emitida no mesmo clock
                             if i + 1 < len(linhas):
                                 proxima_linha = linhas[i + 1].strip().split(';')
                                 
                                 if proxima_linha[1] == self.current_clock:
-                                    i += 1  # Incrementar i antes de continuar
+                                    i += 1
                                     continue
                             
                         else:                    
@@ -227,21 +269,10 @@ class EMISSOR:
                     old_clock = self.current_clock
                     i += 1
 
-                # if i > len(linhas) - 1:
-                #     print(f"Sequencia de tarefas prontas {ready_threads}")
-                #     cliente_clock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                #     cliente_clock.settimeout(1.0)  # Timeout para conexão
-                #     cliente_clock.connect((self.host, 4000))
-
-                #     mensagem_clock = "ESCALONADOR: ENCERRADO"
-                #     cliente_clock.send(mensagem_clock.encode())
-
-                #     cliente_clock.close()
-                #     break
-
-                    if i == len(linhas):
-                        self.communication_scheduler()
-
+                elif i == len(linhas):
+                    self.communication_scheduler()
+                    print("TODAS AS TAREDAS FORAM EMITIDAS! \n")
+                    i += 1
 
             self.close_server()
             print("EMISSOR ENCERRADO POR COMPLETO!")
@@ -257,8 +288,15 @@ class EMISSOR:
 
     def start(self):
         '''
-            Inicia o emissor
+            Inicia o emissor de tarefas.
+            
+            Método principal que:
+            1. Cria o servidor
+            2. Inicia o processamento de tarefas
+            3. Trata interrupções (Ctrl+C) de forma segura
+            4. Garante encerramento limpo do servidor        
         '''
+        
         try:
             # Cria o servidor
             self.create_server()
@@ -268,6 +306,7 @@ class EMISSOR:
             
         except KeyboardInterrupt:
             print("Interrompido pelo usuário")
+            self.running = False
             self.close_server()
 
         except Exception as e:
@@ -279,6 +318,7 @@ class EMISSOR:
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("Erro: Você deve passar exatamente 2 argumentos!")
+        print("Uso: python3 emissor_de_tarefas.py <arquivo_tarefas>")
 
     arq_tarefas = sys.argv[1]
 
