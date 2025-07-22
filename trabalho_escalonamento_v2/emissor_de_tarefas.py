@@ -277,8 +277,6 @@ class EMISSOR:
             self.close_server()
             print("EMISSOR ENCERRADO POR COMPLETO!")
 
-                        
-        
         except FileNotFoundError:
             print(f"Arquivo não encontrado: {self.task_file}")
 

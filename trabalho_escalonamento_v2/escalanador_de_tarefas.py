@@ -5,6 +5,15 @@ import json
 import sys
 import math
 
+@dataclass
+class TempoExecucao:
+    tempo_total: int
+    tempo_restante: int
+
+    @classmethod
+    def criar(cls, tempo):
+        return cls(tempo_total=tempo, tempo_restante=tempo)
+
 
 @dataclass
 class Thread:
@@ -14,7 +23,7 @@ class Thread:
 
     id: str
     tempo_ingresso: int
-    duracao_prevista: int
+    duracao_prevista: TempoExecucao
     prioridade: int
 
     @classmethod
@@ -26,7 +35,7 @@ class Thread:
         return cls(
             id=data['id'],
             tempo_ingresso=data['tempo_ingresso'],
-            duracao_prevista=data['duracao_prevista'],
+            duracao_prevista= TempoExecucao.criar(data['duracao_prevista']),
             prioridade=data['prioridade']
         )
 
@@ -60,9 +69,13 @@ class ESCALONADOR:
         self.emitter_completed = False                  # Flag indicando se o emissor terminou
         self.current_clock = None                       # Valor atual do clock recebido
         self.algoritmo = algoritmo                      # Algoritmo de escalonamento escolhido
+        
 
         # Fila de threads prontas para execução
         self.ready_threads: deque[Thread] = deque()
+        
+        # Determina a política de inserção de tarefas na fila de tarefas prontas
+        self.algoritmo_de_insercao = None               
 
         # Nome do arquivo de saída
         self.output_file = f"algoritmo_{algoritmo}.txt"
@@ -116,7 +129,12 @@ class ESCALONADOR:
                 if data.get('type') == 'NEW_THREAD':
                     # Receber nova thread do emissor
                     thread = Thread.from_dict(data['thread'])
-                    self.ready_threads.appendleft(thread)
+                    
+                    if self.algoritmo_de_insercao == "duração":
+                        self.inserction_by_shortTime(thread)
+                    else:
+                        # fila de tarefas prontas sempre está em ordem crescente do tempo de ingresso das tarefas na fila
+                        self.ready_threads.appendleft(thread)
                     
                 elif data.get('type') == 'TAREFAS_FINALIZADAS':
                     self.emitter_completed = True
@@ -227,6 +245,8 @@ class ESCALONADOR:
             with open(self.output_file, "a") as f:
                 f.write("\n")  # Nova linha após a sequência de execução
                 
+                tarefas_concluidas.sort(key = lambda ordem: ordem.ID)
+                
                 # Escrever informações de cada tarefa
                 for tarefa in tarefas_concluidas:
                     f.write(f"{tarefa.ID};{tarefa.clock_de_ingresso};{tarefa.clock_de_finalizacao};{tarefa.turn_around_time};{tarefa.waiting_time}\n")
@@ -248,6 +268,40 @@ class ESCALONADOR:
             print(f"Erro ao escrever estatísticas finais: {e}")
 
 
+    def inserction_by_shortTime(self, tarefa: Thread):
+        
+        '''
+            Política de inserção de tarefa na fila de tarefa prontas.
+            Nesta politica a fila deve estar sempre em ordem crescente em relação ao tempo de duração prevista das tarefas
+        '''
+
+        pos_final = len(self.ready_threads) - 1
+      
+        if len(self.ready_threads) == 0:
+            self.ready_threads.appendleft(tarefa)
+            #print(f"Aqui: {self.ready_threads}")
+        elif self.ready_threads[0].duracao_prevista.tempo_restante <= tarefa.duracao_prevista.tempo_restante:
+            self.ready_threads.appendleft(tarefa)
+            #print(f"Aqui 2: {self.ready_threads}")
+        
+        elif self.ready_threads[pos_final].duracao_prevista.tempo_restante >= tarefa.duracao_prevista.tempo_restante:
+            self.ready_threads.append(tarefa)
+
+        else:
+            auxiliar = deque()
+            b = True     
+            
+            while len(self.ready_threads) > 0:
+                aux = self.ready_threads.pop()
+                if aux.duracao_prevista.tempo_restante > tarefa.duracao_prevista.tempo_restante and b == True:
+                    auxiliar.appendleft(tarefa)
+                    b = False
+                auxiliar.appendleft(aux)
+            
+            self.ready_threads = auxiliar
+            
+            
+        
 
     def fcfs(self):
         '''
@@ -255,6 +309,163 @@ class ESCALONADOR:
             Executa as threads na ordem de chegada
         '''
 
+        tarefa_em_execucao = False
+        old_clock = None
+        tarefa_no_momento: Thread
+        tarefas_concluidas: list[Tarefa_Finalizada] = []
+
+        # Loop principal do escalonador
+        while not (self.emitter_completed and len(self.ready_threads) == 0 and not tarefa_em_execucao):
+            
+            # Verificar mensagens (incluindo novas threads)
+            self.check_messages()
+
+            # Processar apenas quando o clock muda
+            if old_clock != self.current_clock and self.current_clock is not None:
+                print(f"Clock: {self.current_clock}, Threads prontas: {len(self.ready_threads)}")
+
+                # Iniciar nova tarefa se não há nenhuma em execução
+                if not tarefa_em_execucao and len(self.ready_threads) > 0:
+                    tarefa_no_momento = self.ready_threads.pop()    
+                    print(f"Thread: {tarefa_no_momento.id} escalonada no tempo de clock {self.current_clock}\n")
+                    tarefa_em_execucao = True
+
+                # Processar tarefa em execução
+                if tarefa_em_execucao:     
+                    
+                    # Verificar se a tarefa foi concluída
+                    if tarefa_no_momento.duracao_prevista.tempo_restante == 0:
+                        id_tarefa = tarefa_no_momento.id
+                        tempo_ingresso = tarefa_no_momento.tempo_ingresso
+                        tempo_finalizacao = int(self.current_clock)
+                        turnaround_time = tempo_finalizacao - tempo_ingresso
+                        waiting_time = tempo_finalizacao - (tarefa_no_momento.duracao_prevista.tempo_total + tarefa_no_momento.tempo_ingresso)
+
+                        tarefas_concluidas.append(Tarefa_Finalizada(
+                            id_tarefa,
+                            tempo_ingresso,
+                            tempo_finalizacao, 
+                            turnaround_time,
+                            waiting_time
+                        ))
+                        
+                        print(f"Thread: {id_tarefa} finalizada no clock {tempo_finalizacao}\n")
+                        tarefa_em_execucao = False
+                        continue
+                    
+                    # Escrever no arquivo de saída imediatamente
+                    self.write_to_output_file(tarefa_no_momento.id)
+
+                    # Decrementar a duração da tarefa
+                    tarefa_no_momento.duracao_prevista.tempo_restante -= 1
+                    
+                old_clock = self.current_clock
+
+        print("Tarefas concluídas!")
+     
+        # Escrever estatísticas finais no arquivo
+        self.write_final_statistics(tarefas_concluidas)
+        
+        # Encerrar comunicação com outros processos
+        self.communication_clock()
+        self.communication_emitter()
+        self.close_server()
+
+        print("ESCALONADOR ENCERRADO POR COMPLETO!")
+        
+    def rr(self):
+        
+        '''
+            Implementa o algoritmo Round Robin (RR).
+            Executa as threads na ordem de chegada em um tempo(quantum) de 3 clocks.
+            Se há tarefa não finalizou durante este tempo ela retorna para o fim da fila de tarefas prontas.
+        '''
+        
+        quantum = 3 #Quantidade de clocks que uma tarefa permanece no escalonador antes de retornar para a fila de espera
+        
+        tarefa_em_execucao = False
+        old_clock = None
+        tarefa_no_momento: Thread
+        tarefas_concluidas: list[Tarefa_Finalizada] = []
+
+        
+        quantum_da_tarefa = 0
+        
+        # Loop principal do escalonador
+        while not (self.emitter_completed and len(self.ready_threads) == 0 and not tarefa_em_execucao):
+            
+            # Verificar mensagens (incluindo novas threads)
+            self.check_messages()
+
+            # Processar apenas quando o clock muda
+            if old_clock != self.current_clock and self.current_clock is not None:
+                print(f"Clock: {self.current_clock}, Threads prontas: {len(self.ready_threads)}")
+
+                # Iniciar nova tarefa se não há nenhuma em execução
+                if not tarefa_em_execucao and len(self.ready_threads) > 0:
+                    tarefa_no_momento = self.ready_threads.pop()
+
+                    print(f"Thread: {tarefa_no_momento.id} escalonada no tempo de clock {self.current_clock}\n")
+
+                    quantum_da_tarefa = quantum
+                    tarefa_em_execucao = True
+
+                # Processar tarefa em execução
+                if tarefa_em_execucao:
+                    
+                    
+                    # Verificar se a tarefa foi concluída
+                    if tarefa_no_momento.duracao_prevista.tempo_restante == 0:
+                        id_tarefa = tarefa_no_momento.id
+                        tempo_ingresso = tarefa_no_momento.tempo_ingresso
+                        tempo_finalizacao = int(self.current_clock)
+                        turnaround_time = tempo_finalizacao - tempo_ingresso
+                        waiting_time = tempo_finalizacao - (tarefa_no_momento.duracao_prevista.tempo_total + tempo_ingresso)
+
+                        tarefas_concluidas.append(Tarefa_Finalizada(
+                            id_tarefa,
+                            tempo_ingresso,
+                            tempo_finalizacao, 
+                            turnaround_time,
+                            waiting_time
+                        ))
+                        
+                        print(f"Thread: {id_tarefa} finalizada no clock {tempo_finalizacao}\n")
+                        tarefa_em_execucao = False
+                        continue
+
+                    if (quantum_da_tarefa == 0 and len(self.ready_threads) > 0):
+                        print(f"Thread: {tarefa_no_momento.id} retornou a fila de espera no clock {self.current_clock}\n")
+                        self.ready_threads.appendleft(tarefa_no_momento)
+                    
+                        tarefa_em_execucao = False
+                        continue
+                    
+                    # Escrever no arquivo de saída imediatamente
+                    self.write_to_output_file(tarefa_no_momento.id)
+                    
+                        
+                    tarefa_no_momento.duracao_prevista.tempo_restante -= 1
+                    quantum_da_tarefa -= 1
+                        
+                old_clock = self.current_clock
+
+        print("Tarefas concluídas!")
+     
+        # Escrever estatísticas finais no arquivo
+        self.write_final_statistics(tarefas_concluidas)
+        
+        # Encerrar comunicação com outros processos
+        self.communication_clock()
+        self.communication_emitter()
+        self.close_server()
+        
+    
+    def sjf(self):
+        '''
+            Implementa o algoritmo Shortest Job First (SJF)
+            Executa as threads na ordem de duração prevista da tarefa
+        '''
         tarefa_em_execucao = False
         old_clock = None
         tarefa_no_momento: Thread
@@ -283,7 +494,7 @@ class ESCALONADOR:
                 if tarefa_em_execucao:     
                     
                     # Verificar se a tarefa foi concluída
-                    if tarefa_no_momento.duracao_prevista == 0:
+                    if tarefa_no_momento.duracao_prevista.tempo_restante == 0:
                         id_tarefa = tarefa_no_momento.id
                         tempo_ingresso = tarefa_no_momento.tempo_ingresso
                         tempo_finalizacao = int(self.current_clock)
@@ -306,7 +517,7 @@ class ESCALONADOR:
                     self.write_to_output_file(tarefa_no_momento.id)
 
                     # Decrementar a duração da tarefa
-                    tarefa_no_momento.duracao_prevista -= 1
+                    tarefa_no_momento.duracao_prevista.tempo_restante -= 1
                     
                 old_clock = self.current_clock
 
@@ -321,7 +532,7 @@ class ESCALONADOR:
         self.close_server()
 
         print("ESCALONADOR ENCERRADO POR COMPLETO!")
-
+        
 
     def start(self):
         '''
@@ -333,7 +544,7 @@ class ESCALONADOR:
             self.create_server()
 
             # Limpar o arquivo de saída antes de iniciar
-            with open("algoritmo_fcfs.txt", "w") as f:
+            with open(self.output_file, "w") as f:
                 f.write("")
 
             # Algoritmo escolhido
@@ -341,10 +552,11 @@ class ESCALONADOR:
                 self.fcfs()
 
             elif self.algoritmo == "rr":
-                print("rr")
+                self.rr()
 
             elif self.algoritmo == "sjf":
-                print("sjf")
+                self.algoritmo_de_insercao = "duração"
+                self.sjf()
 
             elif self.algoritmo == "srtf":
                 print("srtf")
@@ -391,6 +603,7 @@ if __name__ == "__main__":
     escalonador = ESCALONADOR(host, clock_port, emitter_port, scheduler_port, algoritmo)
 
     escalonador.start()
+
 
 
 
