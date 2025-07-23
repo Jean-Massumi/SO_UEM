@@ -1,33 +1,8 @@
-import socket
-from dataclasses import dataclass
+from baseServer import BaseServer
 import sys
-import json
-
-@dataclass
-class Thread:
-    '''
-        Representa uma thread/tarefa no sistema de escalonamento.
-    '''
-
-    id: str
-    tempo_ingresso: int
-    duracao_prevista: int
-    prioridade: int
-
-    def to_dict(self):
-        '''
-            Converte a thread para formato dicionário.
-        '''
-
-        return {
-            'id': self.id,
-            'tempo_ingresso': self.tempo_ingresso,
-            'duracao_prevista': self.duracao_prevista,
-            'prioridade': self.prioridade
-        }
 
 
-class EMISSOR:
+class EMISSOR(BaseServer):
     '''
         Responsável pela emissão de tarefas
     
@@ -37,114 +12,64 @@ class EMISSOR:
 
     def __init__(self, host: str, clock_port: int, emitter_port: int, scheduler_port: int, arquivo):
 
-        self.host: str = host                           # Endereço IP do servidor
-        self.emitter_port: int = emitter_port           # Porta do servidor do EMISSOR
+        # Inicializar classe pai com informações do servidor
+        super().__init__(host, emitter_port, "emissor")
+
+        # Portas de destino para comunicação
         self.clock_port: int = clock_port               # Porta de destino do CLOCK
         self.scheduler_port: int = scheduler_port       # Porta de destino do ESCALONADOR
-        self.servidor = None                            # Socket Servidor 
 
+        # Atributos específicos do emissor
         self.task_file = arquivo                        # Arquivo fonte das tarefas
         self.current_clock = None                       # Valor atual do clock recebido
-        self.running = True                             # Flag de controle: sistema rodando/parado
+        self.running = True  
 
 
 
-    def create_server(self):
+    def process_message(self, message):
         '''
-            Cria e configura o servidor do emissor.
+            Processa mensagens específicas do emissor.
             
-            Estabelece um socket servidor que escuta na porta especificada,
-            aguardando pulsos do clock e comandos do escalonador.
+            Processa os seguintes tipos:
+            - "CLOCK: {valor}": Atualiza o clock atual do sistema
+            - "ESCALONADOR: ENCERRADO": Para o sistema (running = False)
         '''
         
-        print("Criando o servidor do emissor!")
+        print(f"Mensagem recebida: {message}")    
 
-        # Criar socket
-        self.servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Processar mensagem
+        if message == "ESCALONADOR: ENCERRADO":
+            self.running = False
 
-        self.servidor.bind((self.host, self.emitter_port))
-        self.servidor.listen(3)
-        self.servidor.settimeout(0.1)  # Timeout CURTO para não bloquear muito
-
-        print("Servidor do emissor criado com sucesso! \n")
+        elif message.startswith("CLOCK: "):
+            self.current_clock = message[7:]
 
 
 
-    def check_messages(self):
-        '''
-            Escuta e processa mensagens recebidas.
-            
-            Aceita conexões não-bloqueantes e processa os seguintes tipos:
-            - "CLOCK: {valor}": Atualiza o clock atual do sistema
-            - "ESCALONADOR: ENCERRADO": Para o sistema (running = False)        
-        '''
-       
-        try:
-            # Aceitar conexão
-            cliente, endereco = self.servidor.accept()
-            
-            # Receber dados
-            message = cliente.recv(1024).decode('utf-8')
-            print(f"Mensagem recebida: {message}")    
-
-            # Processar mensagem
-            if message == "ESCALONADOR: ENCERRADO":
-                self.running = False
-
-            elif message.startswith("CLOCK: "):
-                self.current_clock = message[7:]
-            
-            # Fechar conexão
-            cliente.close() 
-
-        except socket.timeout:
-            # Normal - não havia mensagem
-            pass
-                
-        except Exception as e:
-            print(f"Erro no servidor: {e}")
-
-
-
-    def close_server(self):
-        '''
-            Encerra o servidor do emissor de forma segura.
-            
-            Fecha o socket servidor, liberando recursos e a porta utilizada.
-            Chamado automaticamente ao finalizar o sistema.        
-        '''
-
-        print("\nEncerrando o servidor do emissor!")
-
-        if self.servidor:
-            self.servidor.close()
-
-        print("Servidor do emissor encerrado com sucesso!\n")
-
-
-
-    def send_thread_to_scheduler(self, thread: Thread):
+    def send_thread_to_scheduler(self, thread_info: list):
         '''
             Envia uma thread para o escalonador via socket.
             
-            Serializa a thread em formato JSON e a envia para o escalonador
-            com tipo 'NEW_THREAD' para identificação do protocolo.    
+            Recebe uma lista com os dados da thread e cria o dicionário
+            para envio via JSON ao escalonador.
         '''
-
+        
         try:
-            cliente_escalonador = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            cliente_escalonador.settimeout(1.0)
-            cliente_escalonador.connect((self.host, self.scheduler_port))
+            # Print informativo
+            print(f"Thread {thread_info[0]} com tempo: {thread_info[1]} entrando no tempo de clock {self.current_clock} \n")
             
-            # Enviar thread como JSON
+            # Criar dicionário diretamente da lista
             thread_data = {
                 'type': 'NEW_THREAD',
-                'thread': thread.to_dict()
+                'thread': {
+                    'id': thread_info[0],
+                    'tempo_ingresso': int(thread_info[1]),
+                    'duracao_prevista': int(thread_info[2]),
+                    'prioridade': int(thread_info[3])
+                }
             }
-
-            mensagem = json.dumps(thread_data)
-            cliente_escalonador.send(mensagem.encode())
-            cliente_escalonador.close()
+            
+            self.send_json_message(self.host, self.scheduler_port, thread_data)
             
         except Exception as e:
             print(f"Erro ao enviar thread para escalonador: {e}")
@@ -160,16 +85,9 @@ class EMISSOR:
         '''
 
         try:
-            # Cliente do servidor do ESCALONADOR
-            cliente_escalonador = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            cliente_escalonador.settimeout(1.0)  # Timeout para conexão
-            cliente_escalonador.connect((self.host, self.scheduler_port))   
-
-            # Mensagem Enviada ao ESCALONADOR
-            mensagem_escalonador = json.dumps({'type': 'TAREFAS_FINALIZADAS'})              
-            cliente_escalonador.send(mensagem_escalonador.encode())
-
-            cliente_escalonador.close()
+            # Usar método herdado da BaseServer para envio JSON
+            mensagem_data = {'type': 'TAREFAS_FINALIZADAS'}
+            self.send_json_message(self.host, self.scheduler_port, mensagem_data)
             
         except Exception as e:
             print(f"Erro ao comunicar com escalonador: {e}")
@@ -185,14 +103,9 @@ class EMISSOR:
         '''
         
         try:
-            cliente_clock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            cliente_clock.settimeout(1.0)  # Timeout para conexão
-            cliente_clock.connect((self.host, self.clock_port))
-
+            # Usar método herdado da BaseServer
             mensagem_clock = "EMISSOR: INICIAR CLOCK"
-            cliente_clock.send(mensagem_clock.encode())
-
-            cliente_clock.close()
+            self.send_message(self.host, self.clock_port, mensagem_clock)
             
         except Exception as e:
             print(f"Erro ao comunicar com clock: {e}")
@@ -243,16 +156,8 @@ class EMISSOR:
 
                         # Verifica se a tarefa deve ser emitida neste clock
                         if linha_atual[1] == self.current_clock:
-                            thread = Thread(
-                                    linha_atual[0],         # ID
-                                    int(linha_atual[1]),    # Tempo de ingresso
-                                    int(linha_atual[2]),    # Duração prevista
-                                    int(linha_atual[3])     # Prioridade
-                                )
-                            print(f"Thread {thread.id} com tempo: {thread.tempo_ingresso} entrando no tempo de clock {self.current_clock} \n")
-                            
                             # Enviar thread para o escalonador
-                            self.send_thread_to_scheduler(thread)
+                            self.send_thread_to_scheduler(linha_atual)
 
                             # Verifica se a próxima linha também deve ser emitida no mesmo clock
                             if i + 1 < len(linhas):

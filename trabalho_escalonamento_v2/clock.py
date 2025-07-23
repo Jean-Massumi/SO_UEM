@@ -1,7 +1,8 @@
 import time
-import socket
+from baseServer import BaseServer
 
-class CLOCK:
+
+class CLOCK(BaseServer):
     '''
         Classe responsável por gerenciar o clock da CPU.
     
@@ -11,119 +12,39 @@ class CLOCK:
     
     def __init__(self, host: str, clock_port: int, emitter_port: int, scheduler_port: int):
 
-        self.host: str = host                       # Endereço IP do servidor
-        self.clock_port: int = clock_port           # Porta do servidor do CLOCK
+        # Inicializar classe pai com informações do servidor
+        super().__init__(host, clock_port, "clock")
+
+
+        # Portas de destino para comunicação
         self.emitter_port: int = emitter_port       # Porta de destino do EMISSOR
-        self.scheduler_port: int = scheduler_port   # Porta de destino do escalonador
+        self.scheduler_port: int = scheduler_port   # Porta de destino do ESCALONADOR
 
-        self.servidor = None                        # Socket servidor
-
+        # Atributos específicos do clock
         self.current_clock: int = 0                 # Contador de clock (ticks)
         self.clock_started = False                  # Flag de controle: clock ativo/inativo
         self.running = True                         # Flag de controle: sistema rodando/parado
 
 
 
-    def create_server(self):
+    def process_message(self, message):
         '''
-            Cria e configura o servidor do clock.
-
-            Estabelece um socket servidor que escuta na porta especificada,
-            aguardando comandos de controle do emissor e escalonador.
-            Configurado com timeout curto para não bloquear o loop principal.
-        '''
-        
-        print("Criando o servidor do clock!")
-
-        # Criar socket
-        self.servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-        self.servidor.bind((self.host, self.clock_port))
-        self.servidor.listen(3)
-        self.servidor.settimeout(0.1)  # Timeout CURTO para não bloquear muito
-
-        print("Servidor do clock criado com sucesso! \n")
-
-
-    def check_messages(self):
-        '''
-            Escuta e processa mensagens recebidas de outros processos. 
-
-            Aceita conexões não-bloqueantes e processa os seguintes comandos:
+            Processa mensagens específicas do clock.
+            
+            Processa os seguintes comandos:
             - "EMISSOR: INICIAR CLOCK": Ativa o clock (clock_started = True)
             - "ESCALONADOR: ENCERRADO": Para o sistema (running = False)
-            
-            Utiliza timeout curto para não bloquear o loop principal.
-        '''
-
-        try:
-            # Aceitar conexão
-            cliente, endereco = self.servidor.accept()
-            
-            # Receber dados
-            message = cliente.recv(1024).decode('utf-8')
-            print(f"Mensagem recebida: {message}")
-
-            # Processar mensagem
-            if message == "EMISSOR: INICIAR CLOCK":
-                self.clock_started = True
-                print("CLOCK INICIADO! \n")
-
-            elif message == "ESCALONADOR: ENCERRADO":
-                self.running = False
-
-            # Fechar conexão
-            cliente.close()
-                            
-        except socket.timeout:
-            # Timeout é normal, não é erro
-            pass
-                
-        except Exception as e:
-            print(f"Erro no servidor: {e}")
-        
-
-    def close_server(self):
-        '''
-            Encerra o servidor do clock de forma segura.
-            
-            Fecha o socket servidor, liberando recursos e a porta utilizada.
-            Chamado automaticamente ao finalizar o sistema.        
         '''
         
-        print("\nEncerrando o servidor do clock!")
+        print(f"Mensagem recebida: {message}")
 
-        if self.servidor:
-            self.servidor.close()
+        # Processar mensagem
+        if message == "EMISSOR: INICIAR CLOCK":
+            self.clock_started = True
+            print("CLOCK INICIADO! \n")
 
-        print("Servidor do clock encerrado com sucesso!\n")
-
-
-    def send_message(self, port: int, message: str, target_name: str):
-        '''
-            Envia mensagem para um processo específico.
-            
-            Método genérico que estabelece conexão, envia a mensagem
-            e fecha a conexão imediatamente. Trata erros comuns como
-            conexão recusada e timeout.
-        '''
-
-        try:
-            cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            cliente.settimeout(2.0)  # Timeout mais generoso
-            cliente.connect((self.host, port))
-
-            cliente.send(message.encode('utf-8'))
-            cliente.close()
-            
-        except ConnectionRefusedError:
-            print(f"{target_name} não está rodando na porta {port}")
-
-        except socket.timeout:
-            print(f"Timeout ao conectar com {target_name}")
-
-        except Exception as e:
-            print(f"Erro ao comunicar com {target_name}: {e}")
+        elif message == "ESCALONADOR: ENCERRADO":
+            self.running = False
 
 
 
@@ -138,7 +59,7 @@ class CLOCK:
         '''
         
         message = f"CLOCK: {self.current_clock}"
-        self.send_message(self.emitter_port, message, "Emissor")
+        self.send_message(self.host, self.emitter_port, message)
 
 
 
@@ -154,7 +75,7 @@ class CLOCK:
         '''
 
         message = f"CLOCK: {self.current_clock}"
-        self.send_message(self.scheduler_port, message, "Escalonador")
+        self.send_message(self.host, self.scheduler_port, message)
 
 
 
@@ -211,6 +132,7 @@ class CLOCK:
         except Exception as e:
             print(f"Erro no clock_tick: {e}")
             self.close_server()
+
 
 
     def start(self):

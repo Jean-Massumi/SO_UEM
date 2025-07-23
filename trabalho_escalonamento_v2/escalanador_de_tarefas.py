@@ -1,18 +1,14 @@
-import socket
 from dataclasses import dataclass
 from collections import deque
-import json
+from baseServer import BaseServer
 import sys
 import math
+import json
 
 @dataclass
 class TempoExecucao:
     tempo_total: int
     tempo_restante: int
-
-    @classmethod
-    def criar(cls, tempo):
-        return cls(tempo_total=tempo, tempo_restante=tempo)
 
 
 @dataclass
@@ -31,11 +27,14 @@ class Thread:
         '''
             Cria uma instância de Thread a partir de um dicionário
         '''
+        duracao = data['duracao_prevista']
 
         return cls(
             id=data['id'],
             tempo_ingresso=data['tempo_ingresso'],
-            duracao_prevista= TempoExecucao.criar(data['duracao_prevista']),
+            duracao_prevista= TempoExecucao(
+                tempo_total=duracao,
+                tempo_restante=duracao),
             prioridade=data['prioridade']
         )
 
@@ -53,19 +52,22 @@ class Tarefa_Finalizada:
     waiting_time: int
 
 
-class ESCALONADOR:
+class ESCALONADOR(BaseServer):
     '''
         Classe principal do escalonador que implementa diferentes algoritmos
-        de escalonamento de threads
+        de escalonamento de threads. Herda funcionalidade de servidor da BaseServer.
     '''
     
     def __init__(self, host: str, clock_port: int, emitter_port: int, scheduler_port: int, algoritmo: str):
-        self.host: str = host                           # Endereço ID do servidor
-        self.scheduler_port: int = scheduler_port       # Porta do servidor do ESCALONADOR
+        
+        # Inicializar classe pai com informações do servidor
+        super().__init__(host, scheduler_port, "escalonador")
+        
+        # Portas de destino para comunicação
         self.clock_port: int = clock_port               # Porta de destino do CLOCK
         self.emitter_port: int = emitter_port           # Porta de destino do EMISSOR
-        self.servidor = None                            # Socket servidor
 
+        # Atributos específicos do escalonador
         self.emitter_completed = False                  # Flag indicando se o emissor terminou
         self.current_clock = None                       # Valor atual do clock recebido
         self.algoritmo = algoritmo                      # Algoritmo de escalonamento escolhido
@@ -78,100 +80,42 @@ class ESCALONADOR:
         self.algoritmo_de_insercao = None               
 
         # Nome do arquivo de saída
-        self.output_file = f"algoritmo_{algoritmo}.txt"
+        self.output_file = f"arquivo_saidas/algoritmo_{algoritmo}.txt"
         
 
 
-    def create_server(self):
+    def process_message(self, message):
         '''
-            Cria e configura o servidor do escalonador.
+            Implementação do método abstrato da BaseServer.
+            Processa mensagens recebidas do clock e emissor.
             
-            Estabelece um socket servidor que escuta na porta especificada,
-            aguardando pulsos do clock e comando do emissor de tareafas.
+            Args:
+                message (str): Mensagem recebida do cliente
         '''
         
-        print("Criando o servidor do escalonador!")
-
-        # Criar socket
-        self.servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-        self.servidor.bind((self.host, self.scheduler_port))
-        self.servidor.listen(3)
-        self.servidor.settimeout(0.1)  # Timeout CURTO para não bloquear muito
-
-        print("Servidor do escalonador criado com sucesso! \n")
-
-
-
-    def check_messages(self):
-        '''
-            Escuta e processa mensagens recebidas.
-            
-            Aceita conexões não-bloqueantes e processa os seguintes tipos:
-            - "CLOCK: {valor}": Atualiza o clock atual do sistema
-            - "NEW THREAD": Adiciona a thread na fila de tarefas prontas
-            - "TAREFAS FINALIZADAS": Avisa o escalador que o emissor já emitiu 
-            todas as tarefas.          
-        '''
-       
         try:
-            # Aceitar conexão
-            cliente, endereco = self.servidor.accept()
+            # Tentar parsear como JSON
+            data = json.loads(message)
             
-            # Receber dados
-            message = cliente.recv(1024).decode('utf-8')
-
-            # Processar mensagem
-            try:
-                # Tentar parsear como JSON
-                data = json.loads(message)
+            if data.get('type') == 'NEW_THREAD':
+                # Receber nova thread do emissor
+                thread = Thread.from_dict(data['thread'])
                 
-                if data.get('type') == 'NEW_THREAD':
-                    # Receber nova thread do emissor
-                    thread = Thread.from_dict(data['thread'])
-                    
-                    if self.algoritmo_de_insercao == "duração":
-                        self.inserction_by_shortTime(thread)
-                    else:
-                        # fila de tarefas prontas sempre está em ordem crescente do tempo de ingresso das tarefas na fila
-                        self.ready_threads.appendleft(thread)
-                    
-                elif data.get('type') == 'TAREFAS_FINALIZADAS':
-                    self.emitter_completed = True
+                if self.algoritmo_de_insercao == "duração":
+                    self.inserction_by_shortTime(thread)
 
-                    print("TAREFAS FINALIZADAS PELO EMISSOR recebido! \n ")
-                    
-            except json.JSONDecodeError:
-                # Mensagem não é JSON, processar como string
-                if message.startswith("CLOCK: "):
-                    self.current_clock = message[7:]
-            
-            # Fechar conexão
-            cliente.close()
-
-        except socket.timeout:
-            # Normal - não havia mensagem
-            pass
+                else:
+                    # fila de tarefas prontas sempre está em ordem crescente do tempo de ingresso das tarefas na fila
+                    self.ready_threads.appendleft(thread)
                 
-        except Exception as e:
-            print(f"Erro no servidor: {e}")
-
-
-
-    def close_server(self):
-        '''
-            Encerra o servidor do escalonador de forma segura.
-            
-            Fecha o socket servidor, liberando recursos e a porta utilizada.
-            Chamado automaticamente ao finalizar o sistema. 
-        '''
-
-        print("\nEncerrando o servidor do escalonador!")
-
-        if self.servidor:
-            self.servidor.close()
-
-        print("Servidor do escalonador encerrado com sucesso! \n")
+            elif data.get('type') == 'TAREFAS_FINALIZADAS':
+                self.emitter_completed = True
+                print("TAREFAS FINALIZADAS PELO EMISSOR recebido! \n ")
+                
+        except json.JSONDecodeError:
+            # Mensagem não é JSON, processar como string
+            if message.startswith("CLOCK: "):
+                self.current_clock = message[7:]
 
 
 
@@ -179,46 +123,26 @@ class ESCALONADOR:
         '''
             Envia mensagem de encerramento para o processo clock 
         '''
- 
-        try:            
-            # Cliente do servidor do CLOCK
-            cliente_clock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            cliente_clock.settimeout(1.0)  # Timeout para conexão
-            cliente_clock.connect((self.host, self.clock_port))
-
-            # Mensagem Enviada ao CLOCK
+        try:
             mensagem_clock = "ESCALONADOR: ENCERRADO"
-            cliente_clock.send(mensagem_clock.encode())
-
-            cliente_clock.close()
+            self.send_message(self.host, self.clock_port, mensagem_clock)
             
         except Exception as e:
             print(f"Erro ao comunicar com clock: {e}")
 
 
-
+  
     def communication_emitter(self):
         '''
             Envia mensagem de encerramento para o processo emissor
         '''
-        
         try:
-            # Cliente do servidor do EMISSOR DE TAREFAS
-            cliente_emissor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            cliente_emissor.settimeout(1.0)  # Timeout para conexão
-            cliente_emissor.connect((self.host, self.emitter_port))  
-
-            # Mensagem Enviada ao EMISSOR DE TAREFAS
             mensagem_emissor = "ESCALONADOR: ENCERRADO"
-            cliente_emissor.send(mensagem_emissor.encode())
-
-            cliente_emissor.close()
+            self.send_message(self.host, self.emitter_port, mensagem_emissor)
             
-        except ConnectionRefusedError:
-            print(f"Emissor não está rodando na porta {self.emitter_port}")
-
         except Exception as e:
             print(f"Erro ao comunicar com emissor: {e}")
+
 
 
 
@@ -242,20 +166,32 @@ class ESCALONADOR:
         '''
 
         try:
+            
+            
+
             with open(self.output_file, "a") as f:
                 f.write("\n")  # Nova linha após a sequência de execução
                 
                 tarefas_concluidas.sort(key = lambda ordem: ordem.ID)
                 
+                # Variáveis para acumular as somas
+                total_turnaround = 0
+                total_waiting = 0
+
                 # Escrever informações de cada tarefa
                 for tarefa in tarefas_concluidas:
                     f.write(f"{tarefa.ID};{tarefa.clock_de_ingresso};{tarefa.clock_de_finalizacao};{tarefa.turn_around_time};{tarefa.waiting_time}\n")
-                
+
+                    # Acumular para o cálculo das médias
+                    total_turnaround += tarefa.turn_around_time
+                    total_waiting += tarefa.waiting_time
+
                 # Calcular médias
                 if tarefas_concluidas:
-                    media_turnaround = sum(t.turn_around_time for t in tarefas_concluidas) / len(tarefas_concluidas)
-                    media_waiting = sum(t.waiting_time for t in tarefas_concluidas) / len(tarefas_concluidas)
-                    
+                    num_tarefas = len(tarefas_concluidas)
+                    media_turnaround = total_turnaround / num_tarefas
+                    media_waiting = total_waiting / num_tarefas
+                        
                     # Arredondar para cima com 1 casa decimal
                     media_turnaround_rounded = math.ceil(media_turnaround * 10) / 10
                     media_waiting_rounded = math.ceil(media_waiting * 10) / 10
