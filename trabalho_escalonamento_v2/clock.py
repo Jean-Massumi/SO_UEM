@@ -15,7 +15,6 @@ class CLOCK(BaseServer):
         # Inicializar classe pai com informações do servidor
         super().__init__(host, clock_port, "clock")
 
-
         # Portas de destino para comunicação
         self.emitter_port: int = emitter_port       # Porta de destino do EMISSOR
         self.scheduler_port: int = scheduler_port   # Porta de destino do ESCALONADOR

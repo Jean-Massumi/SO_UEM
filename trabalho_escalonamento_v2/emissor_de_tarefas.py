@@ -112,13 +112,64 @@ class EMISSOR(BaseServer):
 
 
 
+    def _load_and_organize_tasks(self):
+        '''
+            Carrega o arquivo de tarefas e organiza por tempo de ingresso.
+        '''
+
+        tarefas_por_tempo = {}
+        
+        with open(self.task_file, 'r') as arq:
+            for linha_num, linha in enumerate(arq, 1):
+                linha = linha.strip()
+                
+                if not linha:  # Ignora linhas vazias
+                    continue
+                    
+                try:
+                    dados_tarefa = linha.split(';')
+                    
+                    if len(dados_tarefa) != 4:
+                        print(f"Aviso: Linha {linha_num} com formato inválido: {linha}")
+                        continue
+                    
+                    tempo_ingresso = dados_tarefa[1]
+                    
+                    # Organiza tarefas por tempo de ingresso
+                    if tempo_ingresso not in tarefas_por_tempo:
+                        tarefas_por_tempo[tempo_ingresso] = []
+                        
+                    tarefas_por_tempo[tempo_ingresso].append(dados_tarefa)
+                    
+                except Exception as e:
+                    print(f"Erro ao processar linha {linha_num}: {e}")
+                    continue
+        
+        return tarefas_por_tempo
+
+
+
+    def _process_tasks_for_current_time(self, tarefas):
+        '''
+            Processa todas as tarefas para o tempo atual do clock.
+            
+            *tarefas* (list): Lista de tarefas a serem processadas
+        '''
+        
+        print(f"Processando {len(tarefas)} tarefas para o tempo {self.current_clock}")
+        
+        for tarefa in tarefas:
+            self.send_thread_to_scheduler(tarefa)
+
+
+
     def task_checker(self):
         '''
             Loop principal que processa e emite tarefas baseado no clock.
             
             Executa o seguinte algoritmo:
             1. Inicializa o clock do sistema
-            2. Lê arquivo de tarefas linha por linha
+            2. Lê arquivo de tarefas e organiza por tempo de ingresso
             3. Para cada pulso do clock, verifica se há tarefas a emitir
             4. Envia tarefas prontas para o escalonador
             5. Notifica finalização quando todas as tarefas foram emitidas
@@ -130,63 +181,42 @@ class EMISSOR(BaseServer):
         # Sinaliza a inicialização do clock
         self.communication_clock()
 
-        # Variável para detectar mudanças no clock
-        old_clock = None
-
         try:
+            # Carrega e organiza as tarefas por tempo de ingresso
+            tarefas_por_tempo = self._load_and_organize_tasks()
+            
+            # Controle de estado
+            last_processed_clock = None
+            tasks_finished = False
 
-            with open(self.task_file, 'r') as arq:
-                linhas = arq.readlines()
-
-            # Índice da linha atual sendo processada
-            i = 0
             while self.running:
-
                 # Verifica se o servidor do emissor recebeu alguma mensagem
                 self.check_messages()
 
-                # Processa apenas qunado o clock avança
-                if old_clock != self.current_clock and i < len(linhas):
-                    # Remove os espaços em branco do inicio e fim da linha
-                    linha = linhas[i].strip()
-
-                    if linha:
-                        # Armazena os dados da linha em um lista .
-                        linha_atual = linha.split(';')
-
-                        # Verifica se a tarefa deve ser emitida neste clock
-                        if linha_atual[1] == self.current_clock:
-                            # Enviar thread para o escalonador
-                            self.send_thread_to_scheduler(linha_atual)
-
-                            # Verifica se a próxima linha também deve ser emitida no mesmo clock
-                            if i + 1 < len(linhas):
-                                proxima_linha = linhas[i + 1].strip().split(';')
-                                
-                                if proxima_linha[1] == self.current_clock:
-                                    i += 1
-                                    continue
-                            
-                        else:                    
-                            old_clock = self.current_clock
-                            continue
-
-                    old_clock = self.current_clock
-                    i += 1
-
-                elif i == len(linhas):
-                    self.communication_scheduler()
-                    print("TODAS AS TAREDAS FORAM EMITIDAS! \n")
-                    i += 1
+                # Processa apenas quando o clock avança
+                if self.current_clock is not None and self.current_clock != last_processed_clock:
+                    
+                    # Processa tarefas do tempo atual
+                    if self.current_clock in tarefas_por_tempo:
+                        self._process_tasks_for_current_time(tarefas_por_tempo[self.current_clock])
+                        del tarefas_por_tempo[self.current_clock]  # Remove tarefas já processadas
+                    
+                    # Verifica se todas as tarefas foram processadas
+                    if not tasks_finished and len(tarefas_por_tempo) == 0:
+                        self.communication_scheduler()
+                        print("TODAS AS TAREFAS FORAM EMITIDAS!\n")
+                        tasks_finished = True
+                                        
+                    last_processed_clock = self.current_clock
 
             self.close_server()
             print("EMISSOR ENCERRADO POR COMPLETO!")
 
         except FileNotFoundError:
             print(f"Arquivo não encontrado: {self.task_file}")
-
         except Exception as e:
             print(f"Erro ao processar tarefas: {e}")
+
 
 
     def start(self):
