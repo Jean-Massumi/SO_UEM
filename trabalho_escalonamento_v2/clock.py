@@ -1,7 +1,6 @@
 import time
 from baseServer import BaseServer
 
-
 class CLOCK(BaseServer):
     '''
         Classe responsável por gerenciar o clock da CPU.
@@ -25,7 +24,6 @@ class CLOCK(BaseServer):
         self.running = True                         # Flag de controle: sistema rodando/parado
 
 
-
     def process_message(self, message):
         '''
             Processa mensagens específicas do clock.
@@ -46,7 +44,6 @@ class CLOCK(BaseServer):
             self.running = False
 
 
-
     def communication_emitter(self):
         '''
             Envia pulso de clock para o emissor de tarefas.
@@ -59,7 +56,6 @@ class CLOCK(BaseServer):
         
         message = f"CLOCK: {self.current_clock}"
         self.send_message(self.host, self.emitter_port, message)
-
 
 
     def communication_scheduler(self):
@@ -75,7 +71,6 @@ class CLOCK(BaseServer):
 
         message = f"CLOCK: {self.current_clock}"
         self.send_message(self.host, self.scheduler_port, message)
-
 
 
     def clock_tick(self):
@@ -133,7 +128,6 @@ class CLOCK(BaseServer):
             self.close_server()
 
 
-
     def start(self):
         '''
             Inicia o sistema de clock.
@@ -160,7 +154,6 @@ class CLOCK(BaseServer):
         except Exception as e:
             print(f"Erro geral: {e}")
             self.close_server()
-
 
 
 if __name__ == "__main__":

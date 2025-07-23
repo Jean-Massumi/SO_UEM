@@ -1,6 +1,6 @@
 from baseServer import BaseServer
 import sys
-
+import time
 
 class EMISSOR(BaseServer):
     '''
@@ -25,7 +25,6 @@ class EMISSOR(BaseServer):
         self.running = True  
 
 
-
     def process_message(self, message):
         '''
             Processa mensagens específicas do emissor.
@@ -43,7 +42,6 @@ class EMISSOR(BaseServer):
 
         elif message.startswith("CLOCK: "):
             self.current_clock = message[7:]
-
 
 
     def send_thread_to_scheduler(self, thread_info: list):
@@ -75,7 +73,6 @@ class EMISSOR(BaseServer):
             print(f"Erro ao enviar thread para escalonador: {e}")
 
 
-
     def communication_scheduler(self):
         '''
             Notifica o escalonador sobre finalização de tarefas.
@@ -93,7 +90,6 @@ class EMISSOR(BaseServer):
             print(f"Erro ao comunicar com escalonador: {e}")
 
 
-
     def communication_clock(self):
         '''
             Envia comando para iniciar o clock do sistema.
@@ -109,7 +105,6 @@ class EMISSOR(BaseServer):
             
         except Exception as e:
             print(f"Erro ao comunicar com clock: {e}")
-
 
 
     def _load_and_organize_tasks(self):
@@ -148,7 +143,6 @@ class EMISSOR(BaseServer):
         return tarefas_por_tempo
 
 
-
     def _process_tasks_for_current_time(self, tarefas):
         '''
             Processa todas as tarefas para o tempo atual do clock.
@@ -160,7 +154,6 @@ class EMISSOR(BaseServer):
         
         for tarefa in tarefas:
             self.send_thread_to_scheduler(tarefa)
-
 
 
     def task_checker(self):
@@ -203,9 +196,14 @@ class EMISSOR(BaseServer):
                     
                     # Verifica se todas as tarefas foram processadas
                     if not tasks_finished and len(tarefas_por_tempo) == 0:
-                        self.communication_scheduler()
                         print("TODAS AS TAREFAS FORAM EMITIDAS!\n")
                         tasks_finished = True
+                        
+                        # Pequeno delay para garantir que o escalonador processe o clock atual
+                        time.sleep(0.05)  # 50ms de delay
+
+                        # Envia a mensagem no mesmo clock que terminou de emitir
+                        self.communication_scheduler()
                                         
                     last_processed_clock = self.current_clock
 
@@ -216,7 +214,6 @@ class EMISSOR(BaseServer):
             print(f"Arquivo não encontrado: {self.task_file}")
         except Exception as e:
             print(f"Erro ao processar tarefas: {e}")
-
 
 
     def start(self):
@@ -246,7 +243,6 @@ class EMISSOR(BaseServer):
             print(f"Erro geral: {e}")
             self.close_server()
             
-
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:

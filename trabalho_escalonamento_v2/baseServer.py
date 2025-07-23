@@ -26,7 +26,6 @@ class BaseServer(ABC):
         self.servidor = None
         
     
-
     def create_server(self):
         """
         Cria e configura o servidor.
@@ -44,7 +43,6 @@ class BaseServer(ABC):
         self.servidor.settimeout(0.1)  # Timeout CURTO para não bloquear muito
 
         print(f"Servidor do {self.server_name} criado com sucesso! \n")
-    
     
 
     def check_messages(self):
@@ -74,8 +72,7 @@ class BaseServer(ABC):
                 
         except Exception as e:
             print(f"Erro no servidor: {e}")
-    
-    
+     
 
     @abstractmethod
     def process_message(self, message):
@@ -86,7 +83,6 @@ class BaseServer(ABC):
             message (str): Mensagem recebida do cliente
         """
         pass
-    
     
 
     def close_server(self):
@@ -105,7 +101,6 @@ class BaseServer(ABC):
         print(f"Servidor do {self.server_name} encerrado com sucesso! \n")
     
     
-
     def send_message(self, target_host, target_port, message):
         """
         Envia mensagem para outro servidor.
@@ -117,13 +112,13 @@ class BaseServer(ABC):
         """
         try:
             cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            cliente.settimeout(1.0)  # Timeout para conexão
             cliente.connect((target_host, target_port))
             cliente.send(message.encode('utf-8'))
             cliente.close()
             
         except Exception as e:
             print(f"Erro ao enviar mensagem: {e}")
-    
     
     
     def send_json_message(self, target_host, target_port, data):
