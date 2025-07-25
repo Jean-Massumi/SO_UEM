@@ -24,6 +24,18 @@ class BaseAlgorithm(ABC):
         self.tarefa_em_execucao = True
 
 
+    def _task_switching(self, scheduler):
+        '''
+            Troca uma tarefa por outro.
+        '''
+        
+        print(f"Thread: {self.tarefa_no_momento.id} retornou a fila de tarefas prontas no clock {scheduler.current_clock}\n")
+        nova_tarefa = scheduler.ready_threads.pop()
+        scheduler.ready_threads.append(self.tarefa_no_momento)
+        self.tarefa_no_momento = nova_tarefa
+        print(f"Thread: {self.tarefa_no_momento.id} escalonada no tempo de clock {scheduler.current_clock}\n")
+
+
     def _complete_task(self, scheduler):
         '''
             Completa uma tarefa.
@@ -177,13 +189,8 @@ class SRTF_Algorithm(BaseAlgorithm):
                     self._start_new_task(scheduler)
 
                 elif tamanho_fila > 0 and scheduler.ready_threads[tamanho_fila - 1].duracao_prevista.tempo_restante < self.tarefa_no_momento.duracao_prevista.tempo_restante:
-                    
-                    print(f"Thread: {self.tarefa_no_momento.id} retornou a fila de tarefas prontas no clock {scheduler.current_clock}\n")
-                    nova_tarefa = scheduler.ready_threads.pop()
-                    scheduler.ready_threads.append(self.tarefa_no_momento)
-                    self.tarefa_no_momento = nova_tarefa
-                    print(f"Thread: {self.tarefa_no_momento.id} escalonada no tempo de clock {scheduler.current_clock}\n")
-                    
+                    self._task_switching(scheduler)
+ 
                 # Processar tarefa em execução
                 if self.tarefa_em_execucao:
                     
@@ -226,13 +233,8 @@ class PRIOp_Algorithm(BaseAlgorithm):
                 if not self.tarefa_em_execucao and tamanho_fila > 0:
                     self._start_new_task(scheduler)
 
-                elif tamanho_fila > 0 and scheduler.ready_threads[tamanho_fila - 1].prioridade > self.tarefa_no_momento.prioridade:
-                    
-                    print(f"Thread: {self.tarefa_no_momento.id} retornou a fila de tarefas prontas no clock {scheduler.current_clock}")
-                    nova_tarefa = scheduler.ready_threads.pop()
-                    scheduler.ready_threads.append(self.tarefa_no_momento)
-                    self.tarefa_no_momento = nova_tarefa
-                    print(f"Thread: {self.tarefa_no_momento.id} escalonada no tempo de clock {scheduler.current_clock}\n")
+                elif tamanho_fila > 0 and scheduler.ready_threads[-1].prioridade.prio_e > self.tarefa_no_momento.prioridade.prio_e:
+                    self._task_switching(scheduler)
                     
                 # Processar tarefa em execução
                 if self.tarefa_em_execucao:
