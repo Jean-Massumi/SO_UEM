@@ -7,6 +7,12 @@ class TempoExecucao:
 
 
 @dataclass
+class TipoPrioridade:
+    prio_e: int
+    prio_d: int
+
+
+@dataclass
 class Thread:
     '''
         Representa uma thread a ser escalonado        
@@ -15,7 +21,7 @@ class Thread:
     id: str
     tempo_ingresso: int
     duracao_prevista: TempoExecucao
-    prioridade: int
+    prioridade: TipoPrioridade
 
     @classmethod
     def from_dict(cls, data):
@@ -24,6 +30,7 @@ class Thread:
         '''
 
         duracao = data['duracao_prevista']
+        prioridade = data['prioridade']
 
         return cls(
             id=data['id'],
@@ -31,7 +38,9 @@ class Thread:
             duracao_prevista= TempoExecucao(
                 tempo_total=duracao,
                 tempo_restante=duracao),
-            prioridade=data['prioridade']
+            prioridade= TipoPrioridade(
+                prio_e=prioridade,
+                prio_d=prioridade)
         )
 
 

@@ -1,6 +1,6 @@
 from baseServer import BaseServer
 from models import Thread
-from algoritms import NonPreemptiveAlgorithm, RR_Algorithm
+from algoritms import NonPreemptiveAlgorithm, RR_Algorithm, SRTF_Algorithm, PRIOp_Algorithm
 from file_writer import FileWriter
 from collections import deque
 import sys
@@ -38,8 +38,11 @@ class ESCALONADOR(BaseServer):
         # Algoritmos disponíveis
         self.algorithms = {
             "fcfs": NonPreemptiveAlgorithm(),
-            "rr": RR_Algorithm(quantum=3),
+            "rr": RR_Algorithm(quantum=2),
             "sjf": NonPreemptiveAlgorithm(),
+            "srtf": SRTF_Algorithm(),
+            "prioc": NonPreemptiveAlgorithm(),
+            "priop": PRIOp_Algorithm(),
             # Adicionar outros conforme implementar
         }
 
@@ -64,14 +67,17 @@ class ESCALONADOR(BaseServer):
                 if self.algoritmo_de_insercao == "duração":
                     self.insert_by_shortest_time(thread)
 
+                elif self.algoritmo_de_insercao == "prioridade":
+                    self.insert_by_priority(thread)
+
                 else:
                     # fila de tarefas prontas sempre está em ordem crescente do tempo de ingresso das tarefas na fila
                     self.ready_threads.appendleft(thread)
                 
             elif data.get('type') == 'TAREFAS_FINALIZADAS':
                 self.emitter_completed = True
-                print("TAREFAS FINALIZADAS PELO EMISSOR recebido! \n ")
-                
+                print(f"TAREFAS FINALIZADAS PELO EMISSOR recebido no clock {self.current_clock}! \n")  
+                              
         except json.JSONDecodeError:
             # Mensagem não é JSON, processar como string
             if message.startswith("CLOCK: "):
@@ -127,18 +133,57 @@ class ESCALONADOR(BaseServer):
             self.ready_threads.appendleft(tarefa)
         
         # Menor que o último (vai para o final)
-        elif duracao_nova <= self.ready_threads[-1].duracao_prevista.tempo_restante:
+        elif duracao_nova < self.ready_threads[-1].duracao_prevista.tempo_restante:
             self.ready_threads.append(tarefa)
 
         # Inserção no meio
         else:
             # Procura da direita para esquerda
             for i in range(len(self.ready_threads) - 1, -1, -1):
-                if self.ready_threads[i].duracao_prevista.tempo_restante >= duracao_nova:
+                if self.ready_threads[i].duracao_prevista.tempo_restante > duracao_nova:
                     temp_list = list(self.ready_threads)
                     temp_list.insert(i + 1, tarefa)
                     self.ready_threads = deque(temp_list)
                     return        
+
+
+    def insert_by_priority(self, tarefa: Thread):
+        '''
+            Política de inserção para algoritmo PRIOc e PRIOp.
+            
+            Mantém a fila de threads prontas ordenada em ordem DECRESCENTE de prioridade.
+            A thread com menor prioridade será sempre a última da fila (ready_threads[-1]),
+            permitindo que pop() retire sempre a thread mais prioridade primeiro.
+
+            Exemplo: [3, 3, 2, 1] - pop() retira 1 (maior prioridade)
+
+            Complexidade: O(n) no pior caso, O(1) nos casos otimizados
+        '''
+
+        # Fila vazia
+        if not self.ready_threads:
+            self.ready_threads.appendleft(tarefa)
+            return
+
+        nova_prioridade = tarefa.prioridade.prio_e
+
+        # Maior que o primeiro (vai para o início)
+        if nova_prioridade <= self.ready_threads[0].prioridade.prio_e:
+            self.ready_threads.appendleft(tarefa)
+        
+        # Menor que o último (vai para o final)
+        elif nova_prioridade > self.ready_threads[-1].prioridade.prio_e:
+            self.ready_threads.append(tarefa)
+
+        # Inserção no meio
+        else:
+            # Procura da direita para esquerda
+            for i in range(len(self.ready_threads) - 1, -1, -1):
+                if self.ready_threads[i].prioridade.prio_e < nova_prioridade:
+                    prio_list = list(self.ready_threads)
+                    prio_list.insert(i + 1, tarefa)
+                    self.ready_threads = deque(prio_list)           
+                    return
 
 
     def start(self):
@@ -151,8 +196,11 @@ class ESCALONADOR(BaseServer):
             self.create_server()
 
             # Configurar política de inserção se necessário
-            if self.algoritmo == "sjf":
+            if self.algoritmo == "sjf" or self.algoritmo == "srtf":
                 self.algoritmo_de_insercao = "duração"
+
+            elif self.algoritmo == "prioc" or self.algoritmo == "priop":
+                self.algoritmo_de_insercao = "prioridade"
 
             # Executar algoritmo
             if self.algoritmo in self.algorithms:
@@ -160,7 +208,7 @@ class ESCALONADOR(BaseServer):
 
             else:
                 print("Algoritmo inválido!")
-                print("Algoritmos disponíveis: fcfs, rr, sjf")
+                print("Algoritmos disponíveis: fcfs, rr, sjf, strf, prioc")
                 self.close_server()
             
         except KeyboardInterrupt:
@@ -191,21 +239,3 @@ if __name__ == "__main__":
     escalonador = ESCALONADOR(host, clock_port, emitter_port, scheduler_port, algoritmo)
 
     escalonador.start()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
