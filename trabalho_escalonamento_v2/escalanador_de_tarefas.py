@@ -1,6 +1,6 @@
 from baseServer import BaseServer
 from models import Thread
-from algoritms import NonPreemptiveAlgorithm, RR_Algorithm, SRTF_Algorithm, PRIOp_Algorithm
+from algoritms import NonPreemptiveAlgorithm, RR_Algorithm, SRTF_Algorithm, PRIOp_Algorithm, PRIOd_Algorithm
 from file_writer import FileWriter
 from collections import deque
 import sys
@@ -34,15 +34,20 @@ class ESCALONADOR(BaseServer):
 
         # Gerenciador de arquivos
         self.file_writer = FileWriter(algoritmo)
+
+        # serve para verificar se foi emitido uma nova tarefa ou foi encerrado um tarefa
+        self.verify = False
+
         
         # Algoritmos disponíveis
         self.algorithms = {
             "fcfs": NonPreemptiveAlgorithm(),
-            "rr": RR_Algorithm(quantum=2),
+            "rr": RR_Algorithm(quantum=3),
             "sjf": NonPreemptiveAlgorithm(),
             "srtf": SRTF_Algorithm(),
             "prioc": NonPreemptiveAlgorithm(),
             "priop": PRIOp_Algorithm(),
+            "priod": PRIOd_Algorithm()
             # Adicionar outros conforme implementar
         }
 
@@ -71,7 +76,6 @@ class ESCALONADOR(BaseServer):
                     self.insert_by_priority(thread)
 
                 else:
-                    # fila de tarefas prontas sempre está em ordem crescente do tempo de ingresso das tarefas na fila
                     self.ready_threads.appendleft(thread)
                 
             elif data.get('type') == 'TAREFAS_FINALIZADAS':
@@ -110,7 +114,7 @@ class ESCALONADOR(BaseServer):
 
     def insert_by_shortest_time(self, tarefa: Thread):
         '''
-            Política de inserção para algoritmo SJF (Shortest Job First).
+            Política de inserção para algoritmo SJF e SRTF.
             
             Mantém a fila de threads prontas ordenada em ordem DECRESCENTE de duração restante.
             A thread com menor tempo será sempre a última da fila (ready_threads[-1]),
@@ -146,6 +150,7 @@ class ESCALONADOR(BaseServer):
                     self.ready_threads = deque(temp_list)
                     return        
 
+                
 
     def insert_by_priority(self, tarefa: Thread):
         '''
@@ -165,25 +170,30 @@ class ESCALONADOR(BaseServer):
             self.ready_threads.appendleft(tarefa)
             return
 
-        nova_prioridade = tarefa.prioridade.prio_e
+        nova_prioridade = tarefa.prioridade.prio_d
 
         # Maior que o primeiro (vai para o início)
-        if nova_prioridade <= self.ready_threads[0].prioridade.prio_e:
+        if nova_prioridade >= self.ready_threads[0].prioridade.prio_d:
             self.ready_threads.appendleft(tarefa)
         
         # Menor que o último (vai para o final)
-        elif nova_prioridade > self.ready_threads[-1].prioridade.prio_e:
+        elif nova_prioridade < self.ready_threads[-1].prioridade.prio_d:
             self.ready_threads.append(tarefa)
 
         # Inserção no meio
         else:
             # Procura da direita para esquerda
             for i in range(len(self.ready_threads) - 1, -1, -1):
-                if self.ready_threads[i].prioridade.prio_e < nova_prioridade:
+                if self.ready_threads[i].prioridade.prio_d > nova_prioridade:
                     prio_list = list(self.ready_threads)
                     prio_list.insert(i + 1, tarefa)
                     self.ready_threads = deque(prio_list)           
                     return
+                
+
+    def increment_priority(self):
+        for tarefas in self.ready_threads:
+            tarefas.prioridade.prio_d -= 1
 
 
     def start(self):
@@ -199,7 +209,7 @@ class ESCALONADOR(BaseServer):
             if self.algoritmo == "sjf" or self.algoritmo == "srtf":
                 self.algoritmo_de_insercao = "duração"
 
-            elif self.algoritmo == "prioc" or self.algoritmo == "priop":
+            elif self.algoritmo == "prioc" or self.algoritmo == "priop" or self.algoritmo == "priod":
                 self.algoritmo_de_insercao = "prioridade"
 
             # Executar algoritmo

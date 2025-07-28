@@ -182,14 +182,10 @@ class SRTF_Algorithm(BaseAlgorithm):
 
             if self.old_clock != scheduler.current_clock and scheduler.current_clock is not None:
                 print(f"Clock: {scheduler.current_clock}, Threads prontas: {len(scheduler.ready_threads)}")
-                tamanho_fila = len(scheduler.ready_threads)
-                
-                # Iniciar nova tarefa se não há nenhuma em execução
-                if not self.tarefa_em_execucao and tamanho_fila > 0:
-                    self._start_new_task(scheduler)
 
-                elif tamanho_fila > 0 and scheduler.ready_threads[tamanho_fila - 1].duracao_prevista.tempo_restante < self.tarefa_no_momento.duracao_prevista.tempo_restante:
-                    self._task_switching(scheduler)
+                # Iniciar nova tarefa se não há nenhuma em execução
+                if not self.tarefa_em_execucao and len(scheduler.ready_threads) > 0:
+                    self._start_new_task(scheduler)
  
                 # Processar tarefa em execução
                 if self.tarefa_em_execucao:
@@ -198,6 +194,9 @@ class SRTF_Algorithm(BaseAlgorithm):
                     if self.tarefa_no_momento.duracao_prevista.tempo_restante == 0:
                         self._complete_task(scheduler)
                         continue
+                    
+                    elif len(scheduler.ready_threads) > 0 and scheduler.ready_threads[-1].duracao_prevista.tempo_restante < self.tarefa_no_momento.duracao_prevista.tempo_restante:
+                        self._task_switching(scheduler)
                     
                     # Escrever no arquivo de saída
                     scheduler.file_writer.write_thread_execution(self.tarefa_no_momento.id)
@@ -227,13 +226,13 @@ class PRIOp_Algorithm(BaseAlgorithm):
 
             if self.old_clock != scheduler.current_clock and scheduler.current_clock is not None:
                 print(f"Clock: {scheduler.current_clock}, Threads prontas: {len(scheduler.ready_threads)}")
-                tamanho_fila = len(scheduler.ready_threads)
-                
+                print(scheduler.ready_threads)
+
                 # Iniciar nova tarefa se não há nenhuma em execução
-                if not self.tarefa_em_execucao and tamanho_fila > 0:
+                if not self.tarefa_em_execucao and len(scheduler.ready_threads) > 0:
                     self._start_new_task(scheduler)
 
-                elif tamanho_fila > 0 and scheduler.ready_threads[-1].prioridade.prio_e > self.tarefa_no_momento.prioridade.prio_e:
+                elif len(scheduler.ready_threads) > 0 and scheduler.ready_threads[-1].prioridade.prio_e < self.tarefa_no_momento.prioridade.prio_e:
                     self._task_switching(scheduler)
                     
                 # Processar tarefa em execução
@@ -250,6 +249,77 @@ class PRIOp_Algorithm(BaseAlgorithm):
                     # Decrementar a duração da tarefa
                     self.tarefa_no_momento.duracao_prevista.tempo_restante -= 1
                     
+                self.old_clock = scheduler.current_clock
+
+        self._finalize_execution(scheduler)
+
+
+
+class PRIOd_Algorithm(BaseAlgorithm):
+    
+    def execute(self, scheduler):
+        '''
+            Executa algoritmos o algoritmo 'PRIOd'
+            Este algoritmo sempre executa primeiro a tarefa com maior prioridade na fila de espera, 
+            Se uma tarefa da fila ter maior prioridade que a tarefa em execução,
+            ela toma a execução da tarefa executada, a qual retorna para a fila
+        '''
+        old_tamanho_fila = 0
+        verifify = False
+
+
+        # Loop principal do escalonador
+        while not (scheduler.emitter_completed and len(scheduler.ready_threads) == 0 and not self.tarefa_em_execucao):
+            
+            scheduler.check_messages()
+
+            if self.old_clock != scheduler.current_clock and scheduler.current_clock is not None:
+                print(f"Clock: {scheduler.current_clock}, Threads prontas: {len(scheduler.ready_threads)}")
+                print(scheduler.ready_threads)
+                tamanho_fila = len(scheduler.ready_threads)
+
+                if old_tamanho_fila < tamanho_fila:
+                    verifify = True
+ 
+                # Iniciar nova tarefa se não há nenhuma em execução
+                if not self.tarefa_em_execucao and len(scheduler.ready_threads) > 0:
+                    self._start_new_task(scheduler)
+                    self.tarefa_no_momento.prioridade.prio_d = self.tarefa_no_momento.prioridade.prio_e
+                    #verifify = True     
+
+                
+                elif tamanho_fila > 0 and scheduler.ready_threads[-1].prioridade.prio_d < self.tarefa_no_momento.prioridade.prio_d and \
+                    self.tarefa_no_momento.duracao_prevista.tempo_restante != 0 and old_tamanho_fila < tamanho_fila:
+                    print(f"Thread: {self.tarefa_no_momento.id} retornou a fila de tarefas prontas no clock {scheduler.current_clock}\n")
+                    nova_tarefa = scheduler.ready_threads.pop()
+                    scheduler.insert_by_priority(self.tarefa_no_momento)
+                    self.tarefa_no_momento = nova_tarefa
+                    print(f"Thread: {self.tarefa_no_momento.id} escalonada no tempo de clock {scheduler.current_clock}\n")
+                    self.tarefa_no_momento.prioridade.prio_d = self.tarefa_no_momento.prioridade.prio_e   
+           
+           
+                # Processar tarefa em execução
+                if self.tarefa_em_execucao:
+                    
+                    # Verificar se a tarefa foi concluída
+                    if self.tarefa_no_momento.duracao_prevista.tempo_restante == 0:
+                        self._complete_task(scheduler)
+                        verifify = True     
+
+                        continue      
+                    
+                    # Escrever no arquivo de saída
+                    scheduler.file_writer.write_thread_execution(self.tarefa_no_momento.id)
+                    
+                    # Decrementar a duração da tarefa
+                    self.tarefa_no_momento.duracao_prevista.tempo_restante -= 1
+                    
+
+                if verifify:
+                    scheduler.increment_priority()
+
+                verifify = False
+                old_tamanho_fila = len(scheduler.ready_threads)
                 self.old_clock = scheduler.current_clock
 
         self._finalize_execution(scheduler)
