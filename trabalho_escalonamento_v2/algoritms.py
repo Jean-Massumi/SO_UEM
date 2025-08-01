@@ -1,10 +1,13 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 from models import Tarefa_Finalizada
-
+from diagrama_Gantt import grafico_tarefas_escalonadas
 
 class BaseAlgorithm(ABC):
     '''
         Classe base para todos os algoritmos de escalonamento
+
+        Fornece funcionalidades comuns para execução de tarefas, controle de conclusão
+        e finalização de algoritmos entre diferentes estratégias de escalonam
     '''
     
     def __init__(self):
@@ -26,12 +29,21 @@ class BaseAlgorithm(ABC):
 
     def _task_switching(self, scheduler):
         '''
-            Troca uma tarefa por outro.
+            Realiza a troca de contexto entre tarefas em algoritmos preemptivos.
+            
+            Move a tarefa atual de volta para a fila de prontos e escalona a próxima tarefa.
+            A estratégia de inserção depende do tipo de algoritmo (duração vs prioridade).    
         '''
         
         print(f"Thread: {self.tarefa_no_momento.id} retornou a fila de tarefas prontas no clock {scheduler.current_clock}\n")
         nova_tarefa = scheduler.ready_threads.pop()
-        scheduler.ready_threads.append(self.tarefa_no_momento)
+
+        if scheduler.algoritmo_de_insercao == "duração":
+            scheduler.insert_by_shortest_time(self.tarefa_no_momento)
+        
+        elif scheduler.algoritmo_de_insercao == "prioridade":
+            scheduler.insert_by_priority(self.tarefa_no_momento)
+
         self.tarefa_no_momento = nova_tarefa
         print(f"Thread: {self.tarefa_no_momento.id} escalonada no tempo de clock {scheduler.current_clock}\n")
 
@@ -66,6 +78,7 @@ class BaseAlgorithm(ABC):
         scheduler.communication_clock()
         scheduler.communication_emitter()
         scheduler.close_server()
+        grafico_tarefas_escalonadas(scheduler.file_writer.output_file)
         print("ESCALONADOR ENCERRADO POR COMPLETO!")
 
 
@@ -114,13 +127,18 @@ class NonPreemptiveAlgorithm(BaseAlgorithm):
 
 class RR_Algorithm(BaseAlgorithm):
     '''
-        Implementa o algoritmo Round Robin (RR)
+        Implementa o algoritmo Round Robin (RR).
+        
+        Algoritmo preemptivo que aloca um quantum de tempo fixo para cada tarefa.
+        Quando o quantum expira, a tarefa volta para o final da fila de prontos
+        e a próxima tarefa é escalonada.
     '''
     
     def __init__(self, quantum: int):
         super().__init__()
         self.quantum = quantum
     
+
     def execute(self, scheduler):
         '''
             Executa o algoritmo Round Robin no escalonador fornecido
@@ -166,13 +184,17 @@ class RR_Algorithm(BaseAlgorithm):
 
 
 class SRTF_Algorithm(BaseAlgorithm):
+    """
+        Algoritmo de escalonamento Shortest Remaining Time First (SRTF).
+    
+        Algoritmo preemptivo que sempre executa a tarefa com o menor tempo
+        restante de execução. Se uma nova tarefa chegar com tempo restante
+        menor que a tarefa atual, ocorre preempção imediatamente.
+    """
     
     def execute(self, scheduler):
         '''
-            Executa algoritmos o algoritmo 'SRTF'
-            Este algoritmo sempre executa primeiro a tarefa com menor tempo restante na fila de espera, 
-            Se uma tarefa da fila ter menor tempo restante que a tarefa em execução,
-            ela toma a execução da tarefa executada, a qual retorna para a fila
+            Executa o algoritmo Shortest Remaining Time First (SRTF).
         '''
 
         # Loop principal do escalonador
@@ -210,13 +232,17 @@ class SRTF_Algorithm(BaseAlgorithm):
 
 
 class PRIOp_Algorithm(BaseAlgorithm):
+    """
+        Algoritmo de Prioridade Preemptiva (PRIOp).
     
+        Algoritmo preemptivo que sempre executa a tarefa com menor prioridade
+        disponível na fila de prontos. Quando uma nova tarefa chega com prioridade
+        menor que a tarefa atualmente em execução, ocorre preempção imediata.
+    """
+
     def execute(self, scheduler):
         '''
-            Executa algoritmos o algoritmo 'PRIOp'
-            Este algoritmo sempre executa primeiro a tarefa com maior prioridade na fila de espera, 
-            Se uma tarefa da fila ter maior prioridade que a tarefa em execução,
-            ela toma a execução da tarefa executada, a qual retorna para a fila
+            Executa o algoritmo Prioridade Preemptiva (PRIOp)
         '''
 
         # Loop principal do escalonador
@@ -226,15 +252,11 @@ class PRIOp_Algorithm(BaseAlgorithm):
 
             if self.old_clock != scheduler.current_clock and scheduler.current_clock is not None:
                 print(f"Clock: {scheduler.current_clock}, Threads prontas: {len(scheduler.ready_threads)}")
-                print(scheduler.ready_threads)
 
                 # Iniciar nova tarefa se não há nenhuma em execução
                 if not self.tarefa_em_execucao and len(scheduler.ready_threads) > 0:
                     self._start_new_task(scheduler)
 
-                elif len(scheduler.ready_threads) > 0 and scheduler.ready_threads[-1].prioridade.prio_e < self.tarefa_no_momento.prioridade.prio_e:
-                    self._task_switching(scheduler)
-                    
                 # Processar tarefa em execução
                 if self.tarefa_em_execucao:
                     
@@ -243,6 +265,9 @@ class PRIOp_Algorithm(BaseAlgorithm):
                         self._complete_task(scheduler)
                         continue
                     
+                    elif len(scheduler.ready_threads) > 0 and scheduler.ready_threads[-1].prioridade.prio_d < self.tarefa_no_momento.prioridade.prio_d:
+                        self._task_switching(scheduler)
+
                     # Escrever no arquivo de saída
                     scheduler.file_writer.write_thread_execution(self.tarefa_no_momento.id)
                     
@@ -256,17 +281,17 @@ class PRIOp_Algorithm(BaseAlgorithm):
 
 
 class PRIOd_Algorithm(BaseAlgorithm):
+    """
+        Algoritmo de Prioridade Dinâmica (PRIOd).
+        
+        Faz basicamente igual ao algoritmo PRIOp, só que implementa escalonamento
+        baseado em prioridades que se ajustam dinamicamente durante a execução.
+    """
     
     def execute(self, scheduler):
         '''
-            Executa algoritmos o algoritmo 'PRIOd'
-            Este algoritmo sempre executa primeiro a tarefa com maior prioridade na fila de espera, 
-            Se uma tarefa da fila ter maior prioridade que a tarefa em execução,
-            ela toma a execução da tarefa executada, a qual retorna para a fila
+            Executa o algoritmo Prioridade Dinâmica (PRIOd).
         '''
-        old_tamanho_fila = 0
-        verifify = False
-
 
         # Loop principal do escalonador
         while not (scheduler.emitter_completed and len(scheduler.ready_threads) == 0 and not self.tarefa_em_execucao):
@@ -275,26 +300,16 @@ class PRIOd_Algorithm(BaseAlgorithm):
 
             if self.old_clock != scheduler.current_clock and scheduler.current_clock is not None:
                 print(f"Clock: {scheduler.current_clock}, Threads prontas: {len(scheduler.ready_threads)}")
-                print(scheduler.ready_threads)
-                tamanho_fila = len(scheduler.ready_threads)
 
-                if old_tamanho_fila < tamanho_fila:
-                    verifify = True
- 
                 # Iniciar nova tarefa se não há nenhuma em execução
                 if not self.tarefa_em_execucao and len(scheduler.ready_threads) > 0:
                     self._start_new_task(scheduler)
                     self.tarefa_no_momento.prioridade.prio_d = self.tarefa_no_momento.prioridade.prio_e
-                    #verifify = True     
-
                 
-                elif tamanho_fila > 0 and scheduler.ready_threads[-1].prioridade.prio_d < self.tarefa_no_momento.prioridade.prio_d and \
-                    self.tarefa_no_momento.duracao_prevista.tempo_restante != 0 and old_tamanho_fila < tamanho_fila:
-                    print(f"Thread: {self.tarefa_no_momento.id} retornou a fila de tarefas prontas no clock {scheduler.current_clock}\n")
-                    nova_tarefa = scheduler.ready_threads.pop()
-                    scheduler.insert_by_priority(self.tarefa_no_momento)
-                    self.tarefa_no_momento = nova_tarefa
-                    print(f"Thread: {self.tarefa_no_momento.id} escalonada no tempo de clock {scheduler.current_clock}\n")
+                elif len(scheduler.ready_threads) > 0 and scheduler.ready_threads[-1].prioridade.prio_d < self.tarefa_no_momento.prioridade.prio_d and \
+                    self.tarefa_no_momento.duracao_prevista.tempo_restante != 0 and scheduler.new_emiiter:
+                    
+                    self._task_switching(scheduler)
                     self.tarefa_no_momento.prioridade.prio_d = self.tarefa_no_momento.prioridade.prio_e   
            
            
@@ -304,9 +319,9 @@ class PRIOd_Algorithm(BaseAlgorithm):
                     # Verificar se a tarefa foi concluída
                     if self.tarefa_no_momento.duracao_prevista.tempo_restante == 0:
                         self._complete_task(scheduler)
-                        verifify = True     
+                        scheduler.new_emiiter = True
+                        continue  
 
-                        continue      
                     
                     # Escrever no arquivo de saída
                     scheduler.file_writer.write_thread_execution(self.tarefa_no_momento.id)
@@ -315,11 +330,10 @@ class PRIOd_Algorithm(BaseAlgorithm):
                     self.tarefa_no_momento.duracao_prevista.tempo_restante -= 1
                     
 
-                if verifify:
+                if scheduler.new_emiiter:
                     scheduler.increment_priority()
+                    scheduler.new_emiiter = False
 
-                verifify = False
-                old_tamanho_fila = len(scheduler.ready_threads)
                 self.old_clock = scheduler.current_clock
 
         self._finalize_execution(scheduler)

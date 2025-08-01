@@ -2,12 +2,23 @@ from dataclasses import dataclass
 
 @dataclass
 class TempoExecucao:
+    '''
+        Representa informações de tempo de execução de uma thread.
+    '''
+
     tempo_total: int
     tempo_restante: int
 
 
 @dataclass
 class TipoPrioridade:
+    '''
+        Gerencia as prioridades estática e dinâmica de uma thread.
+    
+        Usado pelos algoritmos de escalonamento baseados em prioridade.
+        Valores menores indicam maior prioridade.
+    '''
+
     prio_e: int
     prio_d: int
 
@@ -15,7 +26,10 @@ class TipoPrioridade:
 @dataclass
 class Thread:
     '''
-        Representa uma thread a ser escalonado        
+        Representa uma thread/processo a ser escalonado pelo sistema.
+        
+        Contém todas as informações necessárias para o escalonamento,
+        incluindo tempo de chegada, duração prevista e prioridades.  
     '''
 
     id: str

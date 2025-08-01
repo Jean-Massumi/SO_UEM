@@ -4,21 +4,21 @@ from abc import ABC, abstractmethod
 
 class BaseServer(ABC):
     """
-    Classe base para servidores com funcionalidade comum de socket.
-    
-    Fornece implementação padrão para criação, gerenciamento e encerramento
-    de servidores, deixando apenas o processamento de mensagens específico
-    para as classes filhas implementarem.
+        Classe base para servidores com funcionalidade comum de socket.
+        
+        Fornece implementação padrão para criação, gerenciamento e encerramento
+        de servidores, deixando apenas o processamento de mensagens específico
+        para as classes filhas implementarem.
     """
     
     def __init__(self, host, port, server_name):
         """
-        Inicializa o servidor base.
-        
-        Args:
-            host (str): Endereço IP do servidor
-            port (int): Porta do servidor
-            server_name (str): Nome do servidor para logs
+            Inicializa o servidor base.
+            
+            Args:
+                host (str): Endereço IP do servidor
+                port (int): Porta do servidor
+                server_name (str): Nome do servidor para logs
         """
         self.host = host
         self.port = port
@@ -28,29 +28,34 @@ class BaseServer(ABC):
     
     def create_server(self):
         """
-        Cria e configura o servidor.
-        
-        Estabelece um socket servidor que escuta na porta especificada,
-        configurado com timeout curto para não bloquear o loop principal.
+            Cria e configura o servidor.
+            
+            Estabelece um socket servidor que escuta na porta especificada,
+            configurado com timeout de 0.1s para permitir verificações não-bloqueantes
+            no loop principal da aplicação.
         """
         
         print(f"Criando o servidor do {self.server_name}!")
 
         # Criar socket
         self.servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        # Fazer bind e começar a escutar
         self.servidor.bind((self.host, self.port))
-        self.servidor.listen(3)
-        self.servidor.settimeout(0.1)  # Timeout CURTO para não bloquear muito
+        self.servidor.listen(3)             # Máximo 3 conexões pendentes
+        self.servidor.settimeout(0.1)       # Timeout CURTO para não bloquear muito
 
         print(f"Servidor do {self.server_name} criado com sucesso! \n")
     
 
     def check_messages(self):
         """
-        Escuta e processa mensagens recebidas.
+            Escuta e processa mensagens recebidas.
         
-        Aceita conexões não-bloqueantes e delega o processamento específico
-        para o método process_message() implementado pelas classes filhas.
+            Aceita uma conexão (se disponível), recebe dados do cliente e
+            delega o processamento para o método process_message() implementado
+            pelas classes filhas. A conexão é automaticamente fechada após
+            o processamento.
         """
        
         try:
@@ -77,20 +82,21 @@ class BaseServer(ABC):
     @abstractmethod
     def process_message(self, message):
         """
-        Processa mensagem recebida - deve ser implementado pelas classes filhas.
-        
-        Args:
-            message (str): Mensagem recebida do cliente
+            Processa mensagem recebida - deve ser implementado pelas classes filhas.
+            
+            Este método é chamado automaticamente pelo check_messages() quando
+            uma mensagem é recebida. Implementações devem definir como processar
+            o conteúdo específico do servidor.
         """
         pass
     
 
     def close_server(self):
         """
-        Encerra o servidor de forma segura.
-        
-        Fecha o socket servidor, liberando recursos e a porta utilizada.
-        Chamado automaticamente ao finalizar o sistema.
+            Encerra o servidor de forma segura.
+            
+            Fecha o socket servidor, liberando recursos e a porta utilizada.
+            Chamado automaticamente ao finalizar o sistema.
         """
 
         print(f"\nEncerrando o servidor do {self.server_name}!")
@@ -103,16 +109,17 @@ class BaseServer(ABC):
     
     def send_message(self, target_host, target_port, message):
         """
-        Envia mensagem para outro servidor.
-        
-        Args:
-            target_host (str): IP do servidor destino
-            target_port (int): Porta do servidor destino  
-            message (str): Mensagem a ser enviada
+            Envia mensagem para outro servidor.
+            
+            Estabelece conexão temporária com o servidor destino, envia a
+            mensagem e fecha a conexão imediatamente.
         """
+
         try:
             cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             cliente.settimeout(1.0)  # Timeout para conexão
+
+            # Conectar e enviar
             cliente.connect((target_host, target_port))
             cliente.send(message.encode('utf-8'))
             cliente.close()
@@ -123,13 +130,12 @@ class BaseServer(ABC):
     
     def send_json_message(self, target_host, target_port, data):
         """
-        Envia mensagem JSON para outro servidor.
-        
-        Args:
-            target_host (str): IP do servidor destino
-            target_port (int): Porta do servidor destino
-            data (dict): Dados a serem enviados como JSON
+            Envia dados estruturados como JSON para outro servidor.
+            
+            Converte o dicionário em JSON e envia via send_message().
+            Útil para comunicação estruturada entre servidores.
         """
+        
         try:
             message = json.dumps(data)
             self.send_message(target_host, target_port, message)

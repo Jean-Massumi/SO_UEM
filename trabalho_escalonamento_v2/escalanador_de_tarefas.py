@@ -35,10 +35,9 @@ class ESCALONADOR(BaseServer):
         # Gerenciador de arquivos
         self.file_writer = FileWriter(algoritmo)
 
-        # serve para verificar se foi emitido uma nova tarefa ou foi encerrado um tarefa
-        self.verify = False
+        # Serve para verificar se foi emitido uma nova tarefa no algoritmo PRIOd
+        self.new_emiiter = False
 
-        
         # Algoritmos disponíveis
         self.algorithms = {
             "fcfs": NonPreemptiveAlgorithm(),
@@ -48,7 +47,6 @@ class ESCALONADOR(BaseServer):
             "prioc": NonPreemptiveAlgorithm(),
             "priop": PRIOp_Algorithm(),
             "priod": PRIOd_Algorithm()
-            # Adicionar outros conforme implementar
         }
 
 
@@ -77,6 +75,8 @@ class ESCALONADOR(BaseServer):
 
                 else:
                     self.ready_threads.appendleft(thread)
+
+                self.new_emiiter = True
                 
             elif data.get('type') == 'TAREFAS_FINALIZADAS':
                 self.emitter_completed = True
