@@ -8,12 +8,18 @@ import json
 
 class ESCALONADOR(BaseServer):
     '''
-        Classe principal do escalonador que implementa diferentes algoritmos
-        de escalonamento de threads. Herda funcionalidade de servidor da BaseServer.
+        Escalonador principal que implementa diferentes algoritmos de escalonamento de CPU.
+    
+        Esta classe gerencia a comunicação com outros componentes do sistema (Clock e Emissor)
+        e executa algoritmos de escalonamento de threads em tempo real. Herda funcionalidades
+        de servidor da BaseServer para comunicação via sockets.
     '''
     
     def __init__(self, host: str, clock_port: int, emitter_port: int, scheduler_port: int, algoritmo: str):
-        
+        '''
+            Inicializa o escalonador com configurações de rede e algoritmo.
+        '''
+
         # Inicializar classe pai com informações do servidor
         super().__init__(host, scheduler_port, "escalonador")
         
@@ -29,14 +35,14 @@ class ESCALONADOR(BaseServer):
         # Fila de threads prontas para execução
         self.ready_threads: deque[Thread] = deque()
         
-        # Determina a política de inserção de tarefas na fila de tarefas prontas
-        self.algoritmo_de_insercao = None               
-
-        # Gerenciador de arquivos
+        # Gerenciador de arquivos de saída
         self.file_writer = FileWriter(algoritmo)
 
         # Serve para verificar se foi emitido uma nova tarefa no algoritmo PRIOd
         self.new_emiiter = False
+
+        # Determina a política de inserção de tarefas na fila de tarefas prontas
+        self.algoritmo_de_insercao = None               
 
         # Algoritmos disponíveis
         self.algorithms = {
@@ -52,21 +58,28 @@ class ESCALONADOR(BaseServer):
 
     def process_message(self, message):
         '''
-            Implementação do método abstrato da BaseServer.
-            Processa mensagens recebidas do clock e emissor.
+            Processa mensagens recebidas do Clock e Emissor via socket.
             
-            Args:
-                message (str): Mensagem recebida do cliente
+            Implementa o protocolo de comunicação do sistema, interpretando
+            dois tipos de mensagens:
+            
+            1. Mensagens JSON do Emissor:
+                - NEW_THREAD: Nova thread para escalonamento
+                - TAREFAS_FINALIZADAS: Sinalização de fim das emissões
+            
+            2. Mensagens String do Clock:
+                - "CLOCK: <valor>": Atualização do tempo do sistema
         '''
         
         try:
-            # Tentar parsear como JSON
+            # Tentar interpretar como mensagem JSON do Emissor
             data = json.loads(message)
             
             if data.get('type') == 'NEW_THREAD':
-                # Receber nova thread do emissor
+                # Nova thread chegou - inserir na fila conforme algoritmo
                 thread = Thread.from_dict(data['thread'])
                 
+                # Aplicar política de inserção baseada no algoritmo ativo
                 if self.algoritmo_de_insercao == "duração":
                     self.insert_by_shortest_time(thread)
 
@@ -74,11 +87,13 @@ class ESCALONADOR(BaseServer):
                     self.insert_by_priority(thread)
 
                 else:
+                    # FCFS e RR usam inserção simples (FIFO)
                     self.ready_threads.appendleft(thread)
 
-                self.new_emiiter = True
+                self.new_emiiter = True     # Sinalizar para aging no PRIOd
                 
             elif data.get('type') == 'TAREFAS_FINALIZADAS':
+                # Emissor terminou de enviar threads
                 self.emitter_completed = True
                 print(f"TAREFAS FINALIZADAS PELO EMISSOR recebido no clock {self.current_clock}! \n")  
                               
@@ -114,15 +129,16 @@ class ESCALONADOR(BaseServer):
 
     def insert_by_shortest_time(self, tarefa: Thread):
         '''
-            Política de inserção para algoritmo SJF e SRTF.
+            Insere thread mantendo fila ordenada por tempo restante (para SJF/SRTF).
             
-            Mantém a fila de threads prontas ordenada em ordem DECRESCENTE de duração restante.
-            A thread com menor tempo será sempre a última da fila (ready_threads[-1]),
-            permitindo que pop() retire sempre a thread mais curta primeiro.
-
-            Exemplo: [11, 5, 3, 1] - pop() retira 1 (menor tempo)
-
-            Complexidade: O(n) no pior caso, O(1) nos casos otimizados
+            Estratégia: Fila ordenada DECRESCENTEMENTE por tempo restante.
+            Estrutura: [maior_tempo, ..., menor_tempo]
+            Operação: pop() sempre retira o menor tempo (final da fila)
+            
+            Esta organização permite:
+            - pop() em O(1) para obter thread mais curta
+            - append() em O(1) para threads muito longas ou muito curtas
+            - Inserção no meio apenas quando necessário
         '''
 
         # Fila vazia
@@ -151,7 +167,6 @@ class ESCALONADOR(BaseServer):
                     return        
 
                 
-
     def insert_by_priority(self, tarefa: Thread):
         '''
             Política de inserção para algoritmo PRIOc e PRIOp.
@@ -192,25 +207,45 @@ class ESCALONADOR(BaseServer):
                 
 
     def increment_priority(self):
+        '''
+            Implementa aging para algoritmo PRIOd - evita starvation.
+    
+            Decrementa a prioridade dinâmica (prio_d) de todas as threads na fila,
+            melhorando suas chances de execução. Chamado periodicamente pelo
+            algoritmo PRIOd quando new_emitter=True.
+        '''
+
         for tarefas in self.ready_threads:
             tarefas.prioridade.prio_d -= 1
 
 
     def start(self):
         '''
-            Inicia o escalonador e executa o algoritmo selecionado
+            Inicia o escalonador e executa o algoritmo selecionado.
+    
+            Fluxo de execução:
+            1. Cria servidor socket para comunicação
+            2. Configura política de inserção baseada no algoritmo
+            3. Executa o algoritmo de escalonamento escolhido
+
+            Configurações de Política:
+            - SJF/SRTF: Ordenação por "duração" 
+            - PRIOc/PRIOp/PRIOd: Ordenação por "prioridade"
+            - FCFS/RR: Sem ordenação especial (FIFO)
         '''
 
         try:
             # Cria o servidor
             self.create_server()
 
-            # Configurar política de inserção se necessário
-            if self.algoritmo == "sjf" or self.algoritmo == "srtf":
+            # Configurar política de inserção conforme algoritmo
+            if self.algoritmo in ["sjf", "srtf"]:
                 self.algoritmo_de_insercao = "duração"
 
-            elif self.algoritmo == "prioc" or self.algoritmo == "priop" or self.algoritmo == "priod":
+            elif self.algoritmo in ["prioc", "priop", "priod"]:
                 self.algoritmo_de_insercao = "prioridade"
+                
+            # FCFS e RR não precisam de política especial
 
             # Executar algoritmo
             if self.algoritmo in self.algorithms:

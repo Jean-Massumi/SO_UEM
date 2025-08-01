@@ -4,10 +4,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
+
 def abrir_arquivo(nome_arquivo):
     '''
         Lê o arquivo de saida com os dados das tarefas escalonadas
     '''
+    
     informacao = []
     matriz = []
     arq = open(nome_arquivo, 'r')
@@ -18,6 +20,7 @@ def abrir_arquivo(nome_arquivo):
         matriz.append(c[:-1].split(";"))
 
     return matriz
+
 
 def analisar_matriz(matriz, nome_arquivo):
     '''
@@ -56,8 +59,10 @@ def analisar_matriz(matriz, nome_arquivo):
             inicio_seq = i
             sequencia.append(thread)
             index_categoria = categorias.index(thread)
+
         elif sequencia[-1] == thread:
             sequencia.append(thread)
+
         else:
             # Usar o índice correto da thread para a cor
             indice_cor = threads_unicas.index(sequencia[0])
